@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- fixed-holiday-1778028748861 force-deploy-1791036543244 -->
+<!-- fixed-holiday-1778028748861 force-deploy-1791275154873 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -22,7 +22,7 @@
     // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
     // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
     // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-    window.__APP_BUILD='build-1791265572281';
+    window.__APP_BUILD='build-1791275154874';
     (function(){
       var RUNNING=window.__APP_BUILD, shown=false, checking=false;
       function runningVer(){
@@ -123,7 +123,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.43';
+const APP_VERSION = '3.56.1';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -3358,6 +3358,7 @@ const shMineMark = (key, before, next) => {
       m[cid] = ts;                                  // 1段目ごと触った（日まるごと等）
     }
   });
+  // 古い覚え書きは捨てる（たまるのを防ぐ）
   for (const p in m) if (ts - m[p] > SHARED_FRESH_MS * 2) delete m[p];
 };
 const shMineHas = (key, cid, day, nowTs) => {
@@ -3816,6 +3817,7 @@ const GCSS=`
     100%{box-shadow:inset 0 0 0 2px rgba(255,255,255,.95), 0 0 0 0 rgba(255,255,255,0), 0 0 0 2px rgba(15,23,42,.92);}
   }
   .hub-just-added{animation:hubJustPulse 1.4s ease-out 6;position:relative;z-index:3;}
+  @keyframes vehMove{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
   @keyframes hubJustChip{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
   .hub-just-chip{
     position:absolute;top:-9px;right:-5px;z-index:6;pointer-events:none;
@@ -7984,8 +7986,676 @@ const RentalLocationModal=memo(({isOpen,onClose,rentalCars,locationData,onSave})
   );
 });
 
+// ── 車両管理 v2：追加・編集（最低限の入力＝登録日・車検満了日・初度登録・ナンバー(FULL)・ボディ色・目的・店舗）──
+const VEH_COLORS=[['パール/白','#f8fafc'],['ブラック','#1f2937'],['シルバー','#cbd5e1'],['グレー','#9ca3af'],
+  ['カーキ','#75923c'],['オフブルー','#7dd3fc'],['ブルー','#2563eb'],['デニム','#3687a4'],
+  ['ベージュ','#eeece1'],['アイボリー','#ffff99'],['ブラウン','#78350f'],['レッド','#dc2626'],['イエロー','#fde047'],['グリーン','#059669']];
+// ── 車検証の写真（スマホの「🛠 機能」から登録した分）を読む。2026-10-05 ──
+//   Storage が使えないので ${STOR}vehdoc-{id}-index ＋ -chunk-{i} に分けて入れてある
+const vehDocLoad=async(docId)=>{
+  const idx=await sGet(STOR+'vehdoc-'+docId+'-index');
+  const n=idx&&idx.chunks?Number(idx.chunks):0;
+  if(!n)return '';
+  const parts=await Promise.all(Array.from({length:n},(_,i)=>sGet(STOR+'vehdoc-'+docId+'-chunk-'+i)));
+  if(parts.some(p=>typeof p!=='string'))return '';
+  return parts.join('');
+};
+// 車検証の写真を消す（分けて入れてある分も index もすべて）
+const vehDocDelete=async(docId)=>{
+  const idx=await sGet(STOR+'vehdoc-'+docId+'-index');
+  const n=idx&&idx.chunks?Number(idx.chunks):0;
+  for(let i=0;i<Math.max(n,1);i++){ try{ await sSet(STOR+'vehdoc-'+docId+'-chunk-'+i,null); }catch(e){} }
+  try{ await sSet(STOR+'vehdoc-'+docId+'-index',null); }catch(e){}
+};
+const vehKB=n=>{ const b=Number(n||0); if(!b)return '—';
+  return b>=1048576?((b/1048576).toFixed(1)+' MB'):(Math.round(b/1024)+' KB'); };
+const VehDocModal=memo(({doc,onClose,onDelete})=>{
+  const [src,setSrc]=useState('');
+  const [err,setErr]=useState('');
+  const [info,setInfo]=useState(null);
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{ let dead=false;
+    (async()=>{ try{
+      const ix=await sGet(STOR+'vehdoc-'+doc.id+'-index'); if(!dead)setInfo(ix||null);
+      const d=await vehDocLoad(doc.id); if(dead)return;
+      if(d)setSrc(d); else setErr('この車検証の写真を読み込めませんでした'); }
+      catch(e){ if(!dead)setErr('この車検証の写真を読み込めませんでした'); } })();
+    return ()=>{dead=true;}; },[doc.id]);
+  const del=async()=>{
+    if(!window.confirm('この車検証の写真を消しますか？'+String.fromCharCode(10)+'（車両そのものは消えません。元には戻せません）'))return;
+    setBusy(true);
+    try{ await vehDocDelete(doc.id); onDelete&&onDelete(doc); onClose(); }
+    catch(e){ setErr('消せませんでした：'+String((e&&e.message)||e)); setBusy(false); }
+  };
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.72)',zIndex:2600,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:14,padding:14,maxWidth:'92vw',maxHeight:'92vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.4)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+          <span style={{fontWeight:900,fontSize:14}}>📄 {doc.name||'車検証'}</span>
+          <span style={{marginLeft:'auto',display:'flex',gap:7,alignItems:'center'}}>
+            {src&&<a href={src} download={(doc.name||'車検証')+'.jpg'}
+              style={{fontSize:11.5,fontWeight:800,color:'#1d4ed8',textDecoration:'none',border:'1.5px solid #bfdbfe',borderRadius:8,padding:'4px 10px'}}>⬇ 保存</a>}
+            {onDelete&&<button onClick={del} disabled={busy}
+              style={{fontSize:11.5,fontWeight:800,color:'#b91c1c',border:'1.5px solid #fca5a5',background:'#fef2f2',borderRadius:8,padding:'4px 10px',cursor:busy?'wait':'pointer'}}>{busy?'消しています…':'🗑 削除'}</button>}
+            <button onClick={onClose} style={{border:'none',background:'#f1f5f9',borderRadius:'50%',width:28,height:28,fontSize:14,color:'#64748b',cursor:'pointer'}}>✕</button>
+          </span>
+        </div>
+        {/* ★この写真の情報（2026-10-05 ユーザー要望） */}
+        <div style={{display:'flex',flexWrap:'wrap',gap:'2px 14px',fontSize:11,color:'#64748b',marginBottom:8,paddingBottom:6,borderBottom:'1px solid #f1f5f9'}}>
+          <span>撮った日 <b style={{color:'#334155'}}>{doc.at?vehFmt(String(doc.at).slice(0,10)):'—'}</b></span>
+          <span>撮った人 <b style={{color:'#334155'}}>{doc.by||'—'}</b></span>
+          <span>大きさ <b style={{color:'#334155'}}>{vehKB(info&&info.size||doc.size)}</b></span>
+          <span>分けて保存 <b style={{color:'#334155'}}>{(info&&info.chunks)||doc.chunks||1} 個</b></span>
+          <span>取り込み <b style={{color:'#334155'}}>スマホの「🛠 機能」</b></span>
+        </div>
+        {err?<div style={{padding:'30px 40px',color:'#b91c1c',fontWeight:800,fontSize:13}}>⚠️ {err}</div>
+          :src?<img src={src} alt="車検証" style={{display:'block',maxWidth:'86vw',maxHeight:'78vh'}}/>
+          :<div style={{padding:'40px 60px',color:'#64748b',fontWeight:800,fontSize:13}}>⏳ 読み込んでいます…</div>}
+      </div>
+    </div>
+  );
+});
+const VehicleEdit=memo(({v,onSave,onClose})=>{
+  const [f,setF]=useState(()=>({
+    id:(v&&v.id)||('v'+Date.now()),
+    group:(v&&v.group)||'factory', name:(v&&v.name)||'', num:(v&&v.num)||'',
+    maker:(v&&v.maker)||'', model:(v&&v.model)||'', cargo4:!!(v&&v.cargo4),
+    colorHex:(v&&v.colorHex)||'', purpose:(v&&v.purpose)||'loaner', user:(v&&v.user)||'',
+    store:(v&&v.store)||'honten', tire:(v&&v.tire)||'summer',
+    insurance:v?!!v.insurance:true, nav:(v&&v.nav)||'', navYen:(v&&v.navYen)||'', supplier:(v&&v.supplier)||'',
+    regDate:(v&&v.regDate)||'', firstReg:(v&&v.firstReg)||'', expiry:(v&&v.expiry)||'',
+    usedNew:!!(v&&v.usedNew), note:(v&&v.note)||'',
+    inspections:(v&&v.inspections)||{m1:{doneAt:''},m6:{doneAt:''},m12:[]},
+    docs:(v&&v.docs)||[], archived:!!(v&&v.archived), createdAt:(v&&v.createdAt)||new Date().toISOString(),
+  }));
+  const set=(k,val)=>setF(p=>({...p,[k]:val}));
+  const [err,setErr]=useState('');
+  const INP={width:'100%',padding:'7px 9px',border:'2px solid #e5e7eb',borderRadius:7,fontSize:13,boxSizing:'border-box',fontFamily:'inherit'};
+  const LB={fontSize:10.5,fontWeight:800,color:'#64748b',margin:'9px 0 3px'};
+  const save=()=>{
+    // ★登録日が空でも、車検満了日が入っていれば逆算して入れる（取り込み分は登録日が無いため）
+    const fixed={...f};
+    if(!String(fixed.regDate||'').trim()&&String(fixed.expiry||'').trim())fixed.regDate=vehBase(fixed);
+    const need=[['name','車名'],['num','ナンバー（FULL）'],['expiry','車検満了日'],['firstReg','初度登録'],['colorHex','ボディ色']];
+    const miss=need.filter(([k])=>!String(fixed[k]||'').trim()).map(([,l])=>l);
+    if(miss.length){setErr('入れてください：'+miss.join('・'));try{window.scrollTo(0,0);}catch(e){}return;}
+    onSave({...fixed,plate4:vehPlate4(fixed.num),updatedAt:new Date().toISOString()});
+  };
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',zIndex:2200,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} className="modal-box" style={{background:'white',borderRadius:14,width:'min(680px,95vw)',maxHeight:'90vh',overflowY:'auto',padding:'18px 20px',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+          <span style={{fontSize:17}}>🚗</span>
+          <span style={{fontWeight:900,fontSize:15}}>{v?'車両を直す':'車両を手で追加'}</span>
+          <button onClick={onClose} style={{marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:'50%',width:30,height:30,fontSize:14,color:'#64748b',cursor:'pointer'}}>✕</button>
+        </div>
+        {err&&<div style={{fontSize:12.5,fontWeight:800,color:'white',background:'#dc2626',borderRadius:8,padding:'8px 11px',marginBottom:6}}>{err}</div>}
+        <div style={{fontSize:11,color:'#9a3412',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:8,padding:'6px 9px',lineHeight:1.7}}>
+          最低限：<b>車名・ナンバー（FULL）・車検満了日・初度登録・ボディ色・目的・店舗</b><br/>
+          登録日が分からない時は空のままで大丈夫です（車検満了日から入れます）
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+          <div style={{gridColumn:'1 / -1'}}>
+            <div style={LB}>車名（グレード・色まで入れてOK）*</div>
+            <input value={f.name} onChange={e=>set('name',e.target.value)} placeholder="例：ハスラー タフワイルドTB ホワイト" style={INP}/>
+          </div>
+          <div><div style={LB}>ナンバー（FULL）*</div><input value={f.num} onChange={e=>set('num',e.target.value)} placeholder="例：神戸58Aい7177" style={INP}/></div>
+          <div><div style={LB}>メーカー（スズキなら点検アラートが出ます）</div><input value={f.maker} onChange={e=>set('maker',e.target.value)} placeholder="例：スズキ" style={INP}/></div>
+          <div><div style={LB}>登録日*</div><input type="date" value={f.regDate} onChange={e=>set('regDate',e.target.value)} style={INP}/></div>
+          <div><div style={LB}>車検満了日*</div><input type="date" value={f.expiry} onChange={e=>set('expiry',e.target.value)} style={INP}/></div>
+          <div><div style={LB}>初度登録*（年月）</div><input type="month" value={String(f.firstReg||'').slice(0,7)} onChange={e=>set('firstReg',e.target.value)} style={INP}/></div>
+          <div><div style={LB}>型式</div><input value={f.model} onChange={e=>set('model',e.target.value)} placeholder="例：MR52S" style={INP}/></div>
+          <div style={{gridColumn:'1 / -1'}}>
+            <div style={LB}>ボディ色*</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+              {VEH_COLORS.map(([lb,hex])=>(
+                <button key={hex} onClick={()=>set('colorHex',hex)} title={lb}
+                  style={{width:30,height:26,borderRadius:7,cursor:'pointer',background:hex,border:f.colorHex===hex?'3px solid #c2410c':'1.5px solid #cbd5e1'}}/>
+              ))}
+              <input type="color" value={f.colorHex||'#ffffff'} onChange={e=>set('colorHex',e.target.value)} title="その他の色" style={{width:34,height:26,border:'1.5px solid #cbd5e1',borderRadius:7,background:'white',cursor:'pointer'}}/>
+            </div>
+          </div>
+          <div><div style={LB}>目的*</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+              {VEH_PURPOSE.map(p=>(
+                <button key={p.id} onClick={()=>set('purpose',p.id)}
+                  style={{padding:'5px 10px',borderRadius:20,fontSize:11.5,fontWeight:800,cursor:'pointer',border:'2px solid '+(f.purpose===p.id?p.color:'#e5e7eb'),background:f.purpose===p.id?p.color:'white',color:f.purpose===p.id?'white':'#64748b'}}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+          <div><div style={LB}>店舗（所在地）*</div>
+            <div style={{display:'flex',gap:4}}>
+              {VEH_STORES.map(st=>(
+                <button key={st.id} onClick={()=>set('store',st.id)}
+                  style={{padding:'5px 14px',borderRadius:20,fontSize:11.5,fontWeight:800,cursor:'pointer',border:'2px solid '+(f.store===st.id?'#1d4ed8':'#e5e7eb'),background:f.store===st.id?'#1d4ed8':'white',color:f.store===st.id?'white':'#64748b'}}>📍{st.label}</button>
+              ))}
+            </div>
+          </div>
+          {f.purpose==='company'&&(
+            <div style={{gridColumn:'1 / -1'}}><div style={LB}>使用者（社用車）</div>
+              <input value={f.user} onChange={e=>set('user',e.target.value)} placeholder="例：中井さん" style={INP}/></div>
+          )}
+          <div><div style={LB}>タイヤ</div>
+            <div style={{display:'flex',gap:4}}>
+              {[['summer','夏'],['winter','冬']].map(([id,lb])=>(
+                <button key={id} onClick={()=>set('tire',id)}
+                  style={{padding:'5px 16px',borderRadius:20,fontSize:11.5,fontWeight:800,cursor:'pointer',border:'2px solid '+(f.tire===id?(id==='summer'?'#f59e0b':'#2563eb'):'#e5e7eb'),background:f.tire===id?(id==='summer'?'#fef3c7':'#dbeafe'):'white',color:f.tire===id?(id==='summer'?'#b45309':'#1d4ed8'):'#64748b'}}>{lb}</button>
+              ))}
+            </div>
+          </div>
+          <div><div style={LB}>保険</div>
+            <div style={{display:'flex',gap:4}}>
+              {[[true,'○ あり'],[false,'× なし']].map(([val,lb])=>(
+                <button key={String(val)} onClick={()=>set('insurance',val)}
+                  style={{padding:'5px 14px',borderRadius:20,fontSize:11.5,fontWeight:800,cursor:'pointer',
+                    border:'2px solid '+(f.insurance===val?(val?'#047857':'#dc2626'):'#e5e7eb'),
+                    background:f.insurance===val?(val?'#ecfdf5':'#dc2626'):'white',
+                    color:f.insurance===val?(val?'#047857':'white'):'#64748b'}}>{lb}</button>
+              ))}
+            </div>
+          </div>
+          <div><div style={LB}>その他</div>
+            <div style={{display:'flex',gap:10,alignItems:'center',fontSize:12,paddingTop:6}}>
+              <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}><input type="checkbox" checked={f.cargo4} onChange={e=>set('cargo4',e.target.checked)}/>4ナンバー貨物</label>
+              <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}><input type="checkbox" checked={f.usedNew} onChange={e=>set('usedNew',e.target.checked)}/>中古新規</label>
+            </div>
+          </div>
+          <div><div style={LB}>ナビ</div><input value={f.nav} onChange={e=>set('nav',e.target.value)} placeholder="例：MDV-L308W" style={INP}/></div>
+          <div><div style={LB}>ナビ値段</div><input value={f.navYen} onChange={e=>set('navYen',e.target.value)} style={INP}/></div>
+          <div><div style={LB}>仕入先</div><input value={f.supplier} onChange={e=>set('supplier',e.target.value)} placeholder="例：自販兵庫" style={INP}/></div>
+          <div style={{gridColumn:'1 / -1'}}><div style={LB}>メモ</div><textarea value={f.note} onChange={e=>set('note',e.target.value)} rows={2} style={{...INP,resize:'vertical'}}/></div>
+        </div>
+        <div style={{display:'flex',gap:8,marginTop:14}}>
+          <button onClick={save} style={{flex:1,padding:'11px 0',borderRadius:9,border:'none',background:'linear-gradient(135deg,#c2410c,#ea580c)',color:'white',fontWeight:800,fontSize:14,cursor:'pointer'}}>✓ 保存</button>
+          <button onClick={onClose} style={{padding:'11px 20px',borderRadius:9,border:'2px solid #e5e7eb',background:'white',color:'#64748b',fontWeight:700,cursor:'pointer'}}>キャンセル</button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ── 車両管理 v2：右の詳細パネル ──
+const VehicleDetail=memo(({v,cfg,onChange,onClose,onDelete,linked,onLink,onUnlink})=>{
+  const [edit,setEdit]=useState(false);
+  const [docOpen,setDocOpen]=useState(null);   // 開いている車検証の写真（2026-10-05）
+  const p=vehPurpose(v.purpose);
+  const ex=vehExpiryState(v,cfg);
+  const LB={fontSize:10.5,fontWeight:800,color:'#64748b',margin:'10px 0 3px'};
+  const BOX={border:'1.5px solid #e5e7eb',borderRadius:9,padding:'9px 11px',background:'#fafafa',fontSize:12,lineHeight:1.9};
+  const insRow=(kind,label)=>{
+    const st=vehInspState(v,kind,cfg);
+    const rec=(v.inspections||{})[kind];
+    const done=kind==='m12'?(st.s==='done'):!!(rec&&(rec.done||rec.doneAt));
+    const doneTxt=kind==='m12'?(st.doneAt||''):((rec&&rec.doneAt)||'');
+    const mark=()=>{
+      const today=new Date().toISOString().slice(0,10);
+      const ins={...(v.inspections||{})};
+      if(kind==='m12'){
+        const arr=Array.isArray(ins.m12)?[...ins.m12]:[];
+        if(done)arr.pop();                                   // 直前の回を取り消す
+        else arr.push({due:st.due,doneAt:today,done:true});  // 次の回を済にする
+        ins.m12=arr;
+      }else ins[kind]=done?{...(ins[kind]||{}),done:false,doneAt:''}:{...(ins[kind]||{}),done:true,doneAt:today};
+      onChange({inspections:ins});
+    };
+    const col=st.s==='red'?{background:'#dc2626',color:'white'}:st.s==='orange'?{background:'#f97316',color:'white'}:st.s==='yellow'?{background:'#fde047',color:'#854d0e'}:st.s==='done'?{background:'#f1f5f9',color:'#94a3b8'}:{background:'#eef2ff',color:'#4f46e5'};
+    return(
+      <div key={kind} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderTop:'1px solid #f1f5f9'}}>
+        <span style={{width:74,fontWeight:700}}>{label}</span>
+        <span style={{color:'#64748b'}}>{vehFmt(st.due)}</span>
+        {vehAlertOn(v,kind)&&st.s!=='none'&&<span style={{fontSize:10,fontWeight:800,borderRadius:5,padding:'1px 7px',...col}}>
+          {st.s==='done'?'済':st.s==='red'?'過ぎています':st.s==='orange'?'まもなく':st.s==='yellow'?'そろそろ':'予定'}</span>}
+        <button onClick={mark} style={{marginLeft:'auto',padding:'3px 10px',borderRadius:7,fontSize:10.5,fontWeight:800,cursor:'pointer',border:'1.5px solid '+(done?'#fca5a5':'#86efac'),background:done?'#fef2f2':'#f0fdf4',color:done?'#b91c1c':'#065f46'}}>{done?'済を取り消す':'実施した'}</button>
+      </div>
+    );
+  };
+  return(
+    <div style={{width:380,flexShrink:0,borderLeft:'2px solid #f1f5f9',overflowY:'auto',padding:'12px 14px',background:'white'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <span style={{display:'inline-block',width:20,height:20,borderRadius:5,border:'1px solid rgba(0,0,0,.25)',background:v.colorHex||'#fff'}}/>
+        <span style={{fontWeight:900,fontSize:14}}>{v.name}</span>
+        <button onClick={onClose} style={{marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:'50%',width:26,height:26,fontSize:13,color:'#64748b',cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{display:'flex',gap:6,alignItems:'center',marginTop:5,flexWrap:'wrap'}}>
+        <span style={{fontSize:10,fontWeight:800,borderRadius:20,padding:'1px 8px',color:'white',background:p.color}}>{p.label}</span>
+        <span style={{fontSize:11,color:'#64748b'}}>{v.num}</span>
+        <span style={{fontSize:11,color:'#64748b'}}>📍{(VEH_STORES.find(x=>x.id===v.store)||{}).label||''}</span>
+        {v.user&&<span style={{fontSize:11,color:'#0891b2',fontWeight:700}}>👤{v.user}</span>}
+      </div>
+
+      <div style={LB}>📷 車検証</div>
+      <div style={{border:'2px dashed #93c5fd',borderRadius:10,background:'#eff6ff',padding:'10px',textAlign:'center',color:'#1d4ed8',fontWeight:800,fontSize:11.5}}>
+        {(v.docs||[]).length
+          ?(v.docs||[]).map((d,i)=>(
+            <button key={d.id||i} onClick={()=>setDocOpen(d)}
+              style={{display:'block',width:'100%',margin:'3px 0',padding:'7px 9px',borderRadius:8,border:'1.5px solid #bfdbfe',background:'white',color:'#1d4ed8',fontSize:11.5,fontWeight:800,cursor:'pointer',textAlign:'left'}}>
+              📄 {d.name||'車検証'}{d.at?<span style={{color:'#94a3b8',fontWeight:600,marginLeft:6}}>{String(d.at).slice(0,10)}</span>:null}
+            </button>
+          ))
+          :'（まだ入っていません）'}
+        <div style={{fontWeight:600,fontSize:10.5,color:'#64748b',marginTop:5,lineHeight:1.6}}>
+          スマホの「🛠 機能 → 車検証を読み取る」で撮ると、ここに入ります
+        </div>
+      </div>
+      {docOpen&&<VehDocModal doc={docOpen} onClose={()=>setDocOpen(null)}
+        onDelete={d=>onChange({docs:(v.docs||[]).filter(x=>x&&x.id!==d.id)})}/>}
+
+      <div style={LB}>🔧 点検</div>
+      <div style={{...BOX,padding:'4px 11px'}}>
+        {vehAlertKinds(v).length===0&&<div style={{color:'#94a3b8',fontSize:11,padding:'6px 0'}}>スズキ車ではないので点検アラートは出しません（レンタカーは12か月点検だけ出します）</div>}
+        {vehAlertKinds(v).length===1&&<div style={{color:'#64748b',fontSize:11,padding:'6px 0'}}>スズキ車以外のレンタカーなので、12か月点検だけ知らせます</div>}
+        {insRow('m1','1か月')}
+        {insRow('m6','6か月')}
+        {insRow('m12','12か月')}
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderTop:'1px solid #f1f5f9'}}>
+          <span style={{width:74,fontWeight:700}}>車検満了</span>
+          <span style={{color:ex.s==='red'?'#b91c1c':ex.s==='yellow'?'#d97706':'#047857',fontWeight:700}}>{vehFmt(v.expiry)}</span>
+
+        </div>
+      </div>
+      <div style={{fontSize:10.5,color:'#92400e',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:7,padding:'6px 9px',marginTop:6,lineHeight:1.7}}>
+        {v.usedNew?'中古新規：車検満了日から逆算して12か月点検を置いています。':'新車：登録日から1か月・6か月・12か月で置いています。'}
+      </div>
+
+      <div style={LB}>🔗 代車管理とのつながり</div>
+      <div style={BOX}>
+        {linked?<span style={{color:'#047857',fontWeight:800}}>✓ {linked==='rental'?'レンタカー':linked==='honten'?'本店の代車':'三田店の代車'}に登録済み</span>
+          :<span style={{color:'#64748b'}}>まだ登録されていません</span>}
+        <div style={{marginTop:6}}>
+          <button onClick={onLink} style={{padding:'5px 11px',borderRadius:7,fontSize:11,fontWeight:800,cursor:'pointer',border:'2px solid #86efac',background:'#f0fdf4',color:'#065f46'}}>
+            {linked?'代車管理の内容を今の情報で更新':'代車管理に入れる'}
+          </button>
+          {linked&&<button onClick={onUnlink} style={{marginLeft:6,padding:'5px 11px',borderRadius:7,fontSize:11,fontWeight:800,cursor:'pointer',border:'2px solid #fca5a5',background:'#fef2f2',color:'#b91c1c'}}>
+            リンクを外す（代車管理から消す）
+          </button>}
+        </div>
+      </div>
+
+      <div style={LB}>その他</div>
+      <div style={BOX}>
+        保険 <span onClick={()=>onChange({insurance:!v.insurance})} title="押すと ○⇄× が入れ替わります"
+          style={{cursor:'pointer',display:'inline-block',width:22,height:19,lineHeight:'19px',textAlign:'center',borderRadius:5,fontWeight:900,verticalAlign:'middle',
+            background:v.insurance?'#ecfdf5':'#dc2626',color:v.insurance?'#047857':'white',border:'1.5px solid '+(v.insurance?'#6ee7b7':'#dc2626')}}>{v.insurance?'○':'×'}</span>
+        　/　ナビ {v.nav||'無し'}{v.navYen?'（'+v.navYen+'）':''}<br/>
+        仕入先 {v.supplier||'—'}　/　初度 {vehFmt(v.firstReg)}　/　登録 {vehFmt(v.regDate)}<br/>
+        {v.model&&<>型式 {v.model}　</>}{v.cargo4?'4ナンバー貨物':''}
+        {v.note&&<div style={{color:'#64748b',marginTop:4}}>{v.note}</div>}
+      </div>
+
+      <div style={{display:'flex',gap:7,marginTop:14,flexWrap:'wrap'}}>
+        <button onClick={()=>setEdit(true)} style={{flex:1,padding:'9px 0',borderRadius:8,border:'none',background:'#1d4ed8',color:'white',fontWeight:800,fontSize:12.5,cursor:'pointer'}}>✎ 直す</button>
+        <button onClick={()=>onChange({archived:!v.archived,archivedAt:v.archived?'':new Date().toISOString().slice(0,10)})}
+          style={{padding:'9px 14px',borderRadius:8,border:'2px solid '+(v.archived?'#86efac':'#fca5a5'),background:v.archived?'#f0fdf4':'#fef2f2',color:v.archived?'#065f46':'#b91c1c',fontWeight:800,fontSize:12,cursor:'pointer'}}>
+          {v.archived?'↩ 一覧に戻す':'🗄 アーカイブへ'}
+        </button>
+        <button onClick={onDelete} style={{padding:'9px 12px',borderRadius:8,border:'2px solid #e5e7eb',background:'white',color:'#9ca3af',fontWeight:700,fontSize:11.5,cursor:'pointer'}}>🗑</button>
+      </div>
+      {edit&&<VehicleEdit v={v} onSave={nv=>{onChange(nv);setEdit(false);}} onClose={()=>setEdit(false)}/>}
+    </div>
+  );
+});
+
 // ============================================
-//  車両管理画面（車検証＋点検管理）
+//  車両管理 v2 の画面（2026-10-05 ユーザー打ち合わせ）
+//   ・並びはエクセルと同じ。タイヤ（夏冬）が左端先頭
+//   ・「工場代車」と「レンタカー」を切り離して出す
+//   ・赤網掛け＝アーカイブ箱（引き戻しもできる）
+//   ・点検は時期に入ると動く（ムーヴ）。スズキ車は全部／他メーカーはレンタカーだけ
+// ============================================
+const VehicleView2=memo(({rows,setRows,loanerH,loanerS,rentalList,onSaveLoanerH,onSaveLoanerS,onSaveRental,currentUser})=>{
+  const list=Array.isArray(rows)?rows:[];
+  const [tab,setTab]=useState('live');          // live / archive
+  const [fPurpose,setFPurpose]=useState('all');
+  const [fStore,setFStore]=useState('all');
+  const [fAlert,setFAlert]=useState(false);
+  const [q,setQ]=useState('');
+  const [selId,setSelId]=useState(null);
+  const [showAdd,setShowAdd]=useState(false);
+  const [cfgOpen,setCfgOpen]=useState(false);
+  const cfg=vehAlertCfg((list.find(x=>x&&x.id==='__cfg__')||{}).cfg);
+  const saveCfg=(next)=>setRows(p=>{
+    const arr=Array.isArray(p)?[...p]:[];
+    const i=arr.findIndex(x=>x&&x.id==='__cfg__');
+    if(i>=0)arr[i]={...arr[i],cfg:next}; else arr.push({id:'__cfg__',cfg:next});
+    return arr;
+  });
+  const cars=list.filter(v=>v&&v.id!=='__cfg__');
+  const upd=(id,patch)=>setRows(p=>(Array.isArray(p)?p:[]).map(v=>(v&&v.id===id)?{...v,...patch,updatedAt:new Date().toISOString()}:v));
+  const del=(id)=>setRows(p=>(Array.isArray(p)?p:[]).filter(v=>!(v&&v.id===id)));
+
+  const match=(v)=>{
+    if(tab==='live'&&v.archived)return false;
+    if(tab==='archive'&&!v.archived)return false;
+    if(fPurpose!=='all'&&v.purpose!==fPurpose)return false;
+    if(fStore!=='all'&&v.store!==fStore)return false;
+    if(fAlert){
+      const bad=vehAlertKinds(v).some(k=>['yellow','orange','red'].includes(vehInspState(v,k,cfg).s))||['yellow','red'].includes(vehExpiryState(v,cfg).s);
+      if(!bad)return false;
+    }
+    if(q.trim()){
+      const t=(v.name+' '+v.num+' '+(v.user||'')+' '+(v.maker||'')+' '+(v.nav||'')).toLowerCase();
+      if(!t.includes(q.trim().toLowerCase()))return false;
+    }
+    return true;
+  };
+  const shown=cars.filter(match);
+  const factory=shown.filter(v=>v.group!=='rental');
+  const rentals=shown.filter(v=>v.group==='rental');
+  const alertCount=cars.filter(v=>!v.archived&&(vehAlertKinds(v).some(k=>['yellow','orange','red'].includes(vehInspState(v,k,cfg).s))||['yellow','red'].includes(vehExpiryState(v,cfg).s))).length;
+  const sel=cars.find(v=>v.id===selId)||null;
+
+  // 代車管理とのつながり（ナンバー下4桁で照合）
+  const listOf=k=>k==='rental'?(rentalList||[]):(k==='honten'?(loanerH||[]):(loanerS||[]));
+  const linkedTo=(v)=>{const n=vehPlate4(v.num);if(!n)return'';
+    for(const k of ['rental','honten','sanda'])if(listOf(k).some(c=>String(c.num||'').trim()===n))return k;return'';};
+  // ★代車管理から外す（2026-10-05 ユーザー指示）
+  const unlinkNow=(v)=>{
+    const num=vehPlate4(v.num); if(!num)return;
+    const kind=linkedTo(v); if(!kind){alert('代車管理には入っていません。');return;}
+    const arr=listOf(kind).filter(c=>String(c.num||'').trim()!==num);
+    if(!window.confirm((kind==='rental'?'レンタカー':kind==='honten'?'本店の代車':'三田店の代車')+'の一覧から「'+v.name+'（'+num+'）」を外します。'+String.fromCharCode(10)+'（入っている予約は消えません）'))return;
+    (kind==='rental'?onSaveRental:kind==='honten'?onSaveLoanerH:onSaveLoanerS)(arr);
+  };
+  const linkNow=(v)=>{
+    const kind=v.purpose==='rental'?'rental':(v.store==='sanda'?'sanda':'honten');
+    const num=vehPlate4(v.num);
+    if(!num){alert('ナンバーが読み取れません。');return;}
+    const arr=listOf(kind).slice();
+    const at=arr.findIndex(c=>String(c.num||'').trim()===num);
+    const rec={name:v.name,num,colorHex:v.colorHex||''};
+    if(at>=0)arr[at]={...arr[at],...rec};
+    else{
+      if(arr.length>=20){alert('代車管理に入れられるのは20台までです。');return;}
+      const id=(kind==='rental'?'r':kind==='honten'?'h':'s')+Date.now();
+      arr.push(kind==='rental'?{id,...rec}:{id,...rec,store:kind});
+    }
+    (kind==='rental'?onSaveRental:kind==='honten'?onSaveLoanerH:onSaveLoanerS)(arr);
+    alert((kind==='rental'?'レンタカー':kind==='honten'?'本店の代車':'三田店の代車')+'に「'+v.name+'（'+num+'）」を入れました。');
+  };
+
+  const TH={background:'#334155',color:'white',fontSize:10.5,fontWeight:700,padding:'5px 6px',textAlign:'left',whiteSpace:'nowrap',border:'1px solid #475569'};
+  const THR={...TH,background:'#5b21b6',borderColor:'#6d28d9'};
+  const TD2={border:'1px solid #e5e7eb',padding:'4px 6px',whiteSpace:'nowrap',verticalAlign:'middle',fontSize:11.5};
+  // ★黄 → オレンジ → 赤。色で強さを出す。**動きは最初の3秒だけ**で止める（ずっと動くと目が疲れるため・2026-10-05 ユーザー指示）
+  //   速さは3色とも同じ（0.75秒 × 4回 = 3秒）
+  const VEH_MOVE='vehMove .75s ease-in-out 4';
+  const insStyle=(st)=>st==='red'?{background:'#dc2626',color:'white',animation:VEH_MOVE}
+    :st==='orange'?{background:'#f97316',color:'white',animation:VEH_MOVE}
+    :st==='yellow'?{background:'#fde047',color:'#854d0e',animation:VEH_MOVE}
+    :st==='done'?{background:'#f1f5f9',color:'#94a3b8'}:{background:'#eef2ff',color:'#4f46e5'};
+  const InsCell=({v,kind})=>{
+    if(!vehAlertOn(v,kind))return <span style={{color:'#cbd5e1'}}>—</span>;
+    const st=vehInspState(v,kind,cfg);
+    const nm=(kind==='m1'?'1か月':kind==='m6'?'6か月':'12か月')+'点検';
+    if(st.s==='none')return <span style={{color:'#cbd5e1'}}>—</span>;
+    // ★名前だけ（日数・回数は出さない。2026-10-05 ユーザー指示）。まだ先の時だけ予定日を添える
+    // ★1か月・6か月は「いつが期日か」が分かるよう、いつでも期日を出す（2026-10-05 ユーザー指示）
+    //   12か月はまだ先の時だけ期日を添える。実施日は出さない
+    const withDue=(kind==='m1'||kind==='m6');
+    const txt=st.s==='done'?'済'
+      :st.s==='plan'?(nm+' '+vehFmt(st.due))
+      :(withDue?(nm+' '+vehFmt(st.due)):nm);
+    return <span style={{display:'inline-block',fontSize:10,fontWeight:800,borderRadius:5,padding:'2px 7px',...insStyle(st.s)}}>{txt}</span>;
+  };
+  const Row=({v,rental})=>{
+    const ex=vehExpiryState(v,cfg);
+    const p=vehPurpose(v.purpose);
+    return(
+      <tr onClick={()=>setSelId(v.id)} style={{cursor:'pointer',background:v.id===selId?'#fff7ed':'white'}}>
+        <td style={TD2} onClick={e=>{e.stopPropagation();upd(v.id,{tire:v.tire==='winter'?'summer':'winter'});}}>
+          <span style={{display:'inline-flex',border:'1.5px solid #cbd5e1',borderRadius:20,overflow:'hidden',fontSize:10,fontWeight:800,cursor:'pointer'}} title="押すと夏⇄冬">
+            <span style={{padding:'2px 7px',background:v.tire==='summer'?'#fef3c7':'white',color:v.tire==='summer'?'#b45309':'#94a3b8'}}>夏</span>
+            <span style={{padding:'2px 7px',background:v.tire==='winter'?'#dbeafe':'white',color:v.tire==='winter'?'#1d4ed8':'#94a3b8'}}>冬</span>
+          </span>
+        </td>
+        <td style={{...TD2,whiteSpace:'normal',minWidth:190}}>
+          <span style={{display:'inline-block',width:14,height:14,borderRadius:4,border:'1px solid rgba(0,0,0,.25)',background:v.colorHex||'#fff',verticalAlign:'-2px',marginRight:5}}/>
+          <span style={{fontWeight:700}}>{v.name}</span>
+          {v.maker&&<span style={{marginLeft:4,fontSize:9.5,fontWeight:800,borderRadius:4,padding:'0 5px',background:vehIsSuzuki(v)?'#e0e7ff':'#fee2e2',color:vehIsSuzuki(v)?'#3730a3':'#991b1b'}}>{v.maker}</span>}
+          {v.user&&<span style={{marginLeft:4,fontSize:10,color:'#0891b2',fontWeight:700}}>👤{v.user}</span>}
+        </td>
+        <td style={TD2}>{v.num||'—'}</td>
+        <td style={{...TD2,textAlign:'center',padding:'3px 6px'}} onClick={e=>{e.stopPropagation();upd(v.id,{insurance:!v.insurance});}} title="押すと ○⇄× が入れ替わります">
+          {/* ★文字の高さでズレないよう、箱の真ん中に置く（2026-10-05 ユーザー指摘） */}
+          {v.insurance
+          ?<span style={{display:'inline-block',width:22,height:20,lineHeight:'20px',textAlign:'center',color:'#047857',fontWeight:900,fontSize:13,cursor:'pointer',verticalAlign:'middle'}}>○</span>
+          :<span style={{display:'inline-block',width:22,height:20,lineHeight:'20px',textAlign:'center',background:'#dc2626',color:'white',fontWeight:900,fontSize:13,borderRadius:5,cursor:'pointer',verticalAlign:'middle'}}>×</span>}</td>
+        <td style={TD2}><span style={{display:'inline-block',fontSize:10,fontWeight:800,borderRadius:20,padding:'1px 7px',color:'white',background:p.color}}>{p.label}</span></td>
+        <td style={{...TD2,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis'}}>{v.nav||<span style={{color:'#b91c1c',fontWeight:800,background:'#fee2e2',borderRadius:4,padding:'0 5px'}}>無し</span>}</td>
+        {!rental&&<td style={TD2}>{v.navYen||'—'}</td>}
+        <td style={{...TD2,color:ex.s==='red'?'#b91c1c':ex.s==='yellow'?'#d97706':'#047857',fontWeight:700}}>
+          {vehFmt(v.expiry)}
+        </td>
+        <td style={TD2}>{v.supplier||'—'}</td>
+        <td style={TD2}>{vehFmt(v.firstReg)}</td>
+        <td style={TD2}>{(VEH_STORES.find(x=>x.id===v.store)||{}).label||'—'}</td>
+        <td style={TD2}><InsCell v={v} kind="m1"/></td>
+        <td style={TD2}><InsCell v={v} kind="m6"/></td>
+        <td style={TD2}><InsCell v={v} kind="m12"/></td>
+        <td style={TD2}>{(v.docs||[]).length?('📄'+((v.docs||[]).length>1?(' '+(v.docs||[]).length):'')):'—'}</td>
+      </tr>
+    );
+  };
+  const Head=({rental})=>(
+    <tr>{['タイヤ','車名','ナンバー','保険','目的','ナビ',...(rental?[]:['ナビ値段']),'車検満期','仕入先','初度','所在地','1か月','6か月','12か月','書類']
+      .map(h=><th key={h} style={rental?THR:TH}>{h}</th>)}</tr>
+  );
+
+  return(
+    <div style={{background:'white',borderRadius:13,boxShadow:'0 10px 40px rgba(0,0,0,.18)',borderTop:'4px solid #c2410c',display:'flex',flexDirection:'column',position:'fixed',top:'var(--header-h,90px)',left:8,right:8,bottom:8,overflow:'hidden',zIndex:10}}>
+      <style>{'@keyframes vehMove{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}'}</style>
+      {/* ヘッダー */}
+      <div style={{padding:'10px 16px',background:'linear-gradient(135deg,#7c2d12,#c2410c)',display:'flex',alignItems:'center',gap:9,flexWrap:'wrap',flexShrink:0}}>
+        <span style={{fontSize:19}}>🚗</span>
+        <span style={{fontWeight:900,fontSize:16,color:'white'}}>車両管理</span>
+        <span style={{fontSize:11,fontWeight:800,borderRadius:20,padding:'2px 10px',background:'rgba(255,255,255,.18)',color:'white'}}>工場代車 {cars.filter(v=>!v.archived&&v.group!=='rental').length}台</span>
+        <span style={{fontSize:11,fontWeight:800,borderRadius:20,padding:'2px 10px',background:'rgba(255,255,255,.18)',color:'white'}}>レンタカー {cars.filter(v=>!v.archived&&v.group==='rental').length}台</span>
+        {alertCount>0&&<span style={{fontSize:11,fontWeight:800,borderRadius:20,padding:'2px 10px',background:'#fee2e2',color:'#b91c1c'}}>⚠ {alertCount}台</span>}
+        <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="車名・ナンバー・使用者で探す"
+            style={{padding:'5px 10px',border:'2px solid #fdba74',borderRadius:7,fontSize:12,outline:'none',width:200}}/>
+          <button onClick={()=>setShowAdd(true)} style={{padding:'5px 11px',borderRadius:7,fontSize:11.5,fontWeight:800,border:'2px solid #86efac',background:'#f0fdf4',color:'#065f46',cursor:'pointer'}}>＋ 手で追加</button>
+          <button onClick={()=>setCfgOpen(p=>!p)} style={{padding:'5px 11px',borderRadius:7,fontSize:11.5,fontWeight:800,border:'2px solid #cbd5e1',background:'white',color:'#334155',cursor:'pointer'}}>⚙ アラートの設定</button>
+          <button onClick={()=>setTab(t=>t==='live'?'archive':'live')}
+            style={{padding:'5px 11px',borderRadius:7,fontSize:11.5,fontWeight:800,border:'2px solid '+(tab==='archive'?'#fca5a5':'#cbd5e1'),background:tab==='archive'?'#fef2f2':'white',color:tab==='archive'?'#b91c1c':'#334155',cursor:'pointer'}}>
+            🗄 {tab==='archive'?'一覧に戻る':'アーカイブ（'+cars.filter(v=>v.archived).length+'台）'}
+          </button>
+        </div>
+      </div>
+      {/* 絞り込み */}
+      <div style={{padding:'7px 16px',borderBottom:'1px solid #f1f5f9',background:'#fafafa',display:'flex',gap:5,flexWrap:'wrap',alignItems:'center',flexShrink:0}}>
+        {[{id:'all',label:'すべて'},...VEH_PURPOSE].map(p=>(
+          <button key={p.id} onClick={()=>setFPurpose(p.id)}
+            style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,cursor:'pointer',border:'1.5px solid '+(fPurpose===p.id?'#c2410c':'#e5e7eb'),background:fPurpose===p.id?'#fff7ed':'white',color:fPurpose===p.id?'#9a3412':'#64748b'}}>
+            {p.label}{p.id!=='all'&&' '+cars.filter(v=>!v.archived&&v.purpose===p.id).length}
+          </button>
+        ))}
+        <span style={{width:10}}/>
+        {[{id:'all',label:'両店'},...VEH_STORES].map(st=>(
+          <button key={st.id} onClick={()=>setFStore(st.id)}
+            style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,cursor:'pointer',border:'1.5px solid '+(fStore===st.id?'#1d4ed8':'#e5e7eb'),background:fStore===st.id?'#eff6ff':'white',color:fStore===st.id?'#1d4ed8':'#64748b'}}>📍{st.label}</button>
+        ))}
+        <span style={{width:10}}/>
+        <button onClick={()=>setFAlert(p=>!p)}
+          style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,cursor:'pointer',border:'1.5px solid '+(fAlert?'#dc2626':'#e5e7eb'),background:fAlert?'#fee2e2':'white',color:fAlert?'#b91c1c':'#64748b'}}>⚠ 期限が近いものだけ</button>
+        <span style={{marginLeft:'auto',fontSize:11,color:'#64748b'}}>表示 {shown.length}台</span>
+      </div>
+      {cfgOpen&&(
+        <div style={{padding:'8px 16px',background:'#fff7ed',borderBottom:'1px solid #fed7aa',display:'flex',gap:14,flexWrap:'wrap',alignItems:'center',fontSize:11.5,flexShrink:0}}>
+          <b style={{color:'#9a3412'}}>⚙ 何日前から知らせるか</b>
+          {[['1か月点検','y1','o1'],['6か月点検','y6','o6'],['12か月点検','y12','o12']].map(([lb,yk,ok])=>(
+            <span key={yk} style={{display:'inline-flex',alignItems:'center',gap:4}}>
+              <span style={{color:'#64748b'}}>{lb}</span>
+              <span style={{background:'#fde047',borderRadius:4,padding:'0 4px',fontWeight:800}}>黄</span>
+              <input type="number" value={cfg[yk]} onChange={e=>saveCfg({...cfg,[yk]:Number(e.target.value)||0})} style={{width:48,padding:'2px 5px',border:'1.5px solid #e5e7eb',borderRadius:5}}/>日前
+              <span style={{background:'#f97316',color:'white',borderRadius:4,padding:'0 4px',fontWeight:800,marginLeft:3}}>橙</span>
+              <input type="number" value={cfg[ok]} onChange={e=>saveCfg({...cfg,[ok]:Number(e.target.value)||0})} style={{width:48,padding:'2px 5px',border:'1.5px solid #e5e7eb',borderRadius:5}}/>日前
+            </span>
+          ))}
+          <span style={{display:'inline-flex',alignItems:'center',gap:4}}>
+            <span style={{color:'#64748b'}}>車検満了</span>
+            <span style={{background:'#fde047',borderRadius:4,padding:'0 4px',fontWeight:800}}>色が変わる</span>
+            <input type="number" value={cfg.yCar} onChange={e=>saveCfg({...cfg,yCar:Number(e.target.value)||0})} style={{width:48,padding:'2px 5px',border:'1.5px solid #e5e7eb',borderRadius:5}}/>日前
+          </span>
+          <span style={{fontSize:10.5,color:'#9a3412'}}>赤＝期日を過ぎたら（日数は出しません）</span>
+        </div>
+      )}
+      {/* 本体 */}
+      <div style={{flex:1,display:'flex',minHeight:0}}>
+        <div style={{flex:1,overflow:'auto',padding:'10px 14px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,margin:'2px 0 5px'}}>
+            <span style={{fontWeight:900,fontSize:12.5,color:'#9a3412'}}>{tab==='archive'?'🗄 アーカイブ（売却済みなど）':'🚗 工場代車'}</span>
+            <span style={{flex:1,height:2,background:'#fed7aa'}}/>
+          </div>
+          <table style={{borderCollapse:'collapse',width:'100%'}}>
+            <tbody><Head rental={false}/>{factory.map(v=><Row key={v.id} v={v} rental={false}/>)}</tbody>
+          </table>
+          {factory.length===0&&<div style={{padding:'14px',textAlign:'center',color:'#9ca3af',fontSize:12}}>ありません</div>}
+          {tab==='live'&&(
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:8,margin:'22px 0 5px'}}>
+                <span style={{fontWeight:900,fontSize:12.5,color:'#5b21b6'}}>🔑 レンタカー（わナンバー）</span>
+                <span style={{flex:1,height:2,background:'#ddd6fe'}}/>
+                <span style={{fontSize:11,color:'#64748b'}}>法令の定期点検でアラート（メーカーは問わない）</span>
+              </div>
+              <table style={{borderCollapse:'collapse',width:'100%'}}>
+                <tbody><Head rental={true}/>{rentals.map(v=><Row key={v.id} v={v} rental={true}/>)}</tbody>
+              </table>
+              {rentals.length===0&&<div style={{padding:'14px',textAlign:'center',color:'#9ca3af',fontSize:12}}>ありません</div>}
+            </>
+          )}
+        </div>
+        {/* 右：詳細 */}
+        {sel&&<VehicleDetail v={sel} cfg={cfg} onChange={patch=>upd(sel.id,patch)} onClose={()=>setSelId(null)} onUnlink={()=>unlinkNow(sel)}
+          onDelete={()=>{if(window.confirm('「'+sel.name+'」を消しますか？（アーカイブに入れるだけなら 🗄 のボタンを使ってください）')){del(sel.id);setSelId(null);}}}
+          linked={linkedTo(sel)} onLink={()=>linkNow(sel)}/>}
+      </div>
+      {showAdd&&<VehicleEdit v={null} onSave={nv=>{setRows(p=>[...(Array.isArray(p)?p:[]),nv]);setShowAdd(false);setSelId(nv.id);}} onClose={()=>setShowAdd(false)}/>}
+    </div>
+  );
+});
+// ============================================
+//  車両管理 v2（2026-10-05 ユーザー打ち合わせ。エクセル「代車・レンタカーデータ貸出表」をベースに作り直し）
+//   データ：${STOR}vehicles-v2 の配列。取り込みは node fb_import_vehicles.js
+//   ★古い ${STOR}vehicles（8台）はそのまま残してある（消さない）
+// ============================================
+const VEH_PURPOSE=[
+  {id:'loaner', label:'代車',      color:'#2563eb'},
+  {id:'rental', label:'レンタカー', color:'#7c3aed'},
+  {id:'company',label:'社用車',    color:'#0891b2'},
+  {id:'exhibit',label:'展示車',    color:'#d97706'},
+  {id:'other',  label:'その他',    color:'#6b7280'},
+];
+const vehPurpose=id=>VEH_PURPOSE.find(p=>p.id===id)||VEH_PURPOSE[4];
+const VEH_STORES=[{id:'honten',label:'本店'},{id:'sanda',label:'三田店'}];
+// ★点検アラートの日取り（画面の「⚙ アラートの設定」で変えられる。2026-10-05 ユーザー決定）
+//   黄＝期日の3か月前から（1か月点検は登録より前になるので出ない）
+//   オレンジ＝期日の1か月前から／赤＝期日を過ぎたら
+//   12か月点検は黄色を出さず、1か月前からオレンジ
+const VEH_ALERT_DEF={ y1:0, o1:30, y6:90, o6:30, y12:0, o12:30, yCar:90 };
+const vehAlertCfg=(o)=>({...VEH_ALERT_DEF,...(o&&typeof o==='object'?o:{})});
+// スズキ車か（メーカー欄が空の時は車名から推測しない＝出さない）
+const vehIsSuzuki=v=>/スズキ|SUZUKI|suzuki/.test(String(v&&v.maker||''));
+// ★どの点検を知らせるか（2026-10-05 ユーザー決定）
+//   スズキ車 … 1か月・6か月・12か月（無料点検はスズキの新車点検なので）
+//   スズキ以外のレンタカー … 12か月点検だけ（法定点検）
+//   それ以外 … 出さない
+const vehAlertKinds=v=>{
+  if(!v||v.archived)return[];
+  if(vehIsSuzuki(v))return['m1','m6','m12'];
+  if(v.purpose==='rental'||v.group==='rental')return['m12'];
+  return[];
+};
+const vehAlertOn=(v,kind)=>vehAlertKinds(v).includes(kind||'m12');
+const vehDays=(iso)=>{ if(!iso)return null; const p=String(iso).split('-').map(Number); if(p.length<2||!p[0])return null;
+  const d=new Date(p[0],(p[1]||1)-1,p[2]||1); const t=new Date(); t.setHours(0,0,0,0);
+  return Math.ceil((d-t)/86400000); };
+const vehAddMonths=(iso,m)=>{ if(!iso)return ''; const p=String(iso).split('-').map(Number); if(!p[0])return '';
+  const d=new Date(p[0],(p[1]||1)-1+m,p[2]||1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+// ★点検の基準日（＝登録日）。登録日が入っていない時は【車検満了日から逆算】して日まで出す。
+//   初度登録が「年月」までしか無いエクセル取り込み分でも、満了日から正しい日が出る。
+//   ・乗用の新車は初回車検が3年後 → 満了−3年が登録日。年月が初度登録と合えばそれを使う
+//   ・それ以外（2回目以降の車検・4ナンバー貨物・中古新規）は満了−2年が「前回の車検日」
+const vehBase=(v)=>{
+  if(v&&v.regDate)return v.regDate;
+  const ex=v&&v.expiry;
+  if(!ex)return (v&&v.firstReg)?v.firstReg+'-01':'';
+  const fm=String((v&&v.firstReg)||'').slice(0,7);
+  if(!v.usedNew&&!v.cargo4){
+    const a=vehAddMonths(ex,-36);                       // 新車の初回車検（3年）
+    if(!fm||a.slice(0,7)===fm)return a;
+  }
+  return vehAddMonths(ex,-24);                          // 前回の車検日（2年周期）
+};
+// その車が「初回車検までの新車」か（1か月・6か月点検が意味を持つのはこの間だけ）
+const vehIsNewPeriod=(v)=>{
+  if(!v||v.usedNew)return false;
+  const b=vehBase(v), ex=v.expiry; if(!b||!ex)return false;
+  const bp=String(b).split('-').map(Number), ep=String(ex).split('-').map(Number);
+  const months=(ep[0]-bp[0])*12+((ep[1]||1)-(bp[1]||1));   // 登録から車検満了までの月数
+  return v.cargo4?(months>=22&&months<=26):(months>=34&&months<=38);
+};
+// 12か月点検は車検までに何回か来る（新車の乗用なら1年後・2年後の2回／4ナンバー貨物は1回）。
+//   済んだ数を数えて「次に来る回」を出す。車検満了を過ぎる回は出さない。
+//   ★中古新規は車検満了日から1年ずつ遡って置く（初度登録とずれるため）
+const vehM12List=(v)=>{
+  const out=[];
+  const base=vehBase(v);
+  if(!base)return out;
+  for(let i=1;i<=3;i++){ const d=vehAddMonths(base,12*i); if(!d)break;
+    if(v.expiry&&d>=v.expiry)break; out.push(d); }
+  return out;
+};
+const vehM12Done=(v)=>{const a=(v.inspections||{}).m12;return Array.isArray(a)?a.filter(x=>x&&(x.done||x.doneAt)).length:0;};
+// 点検の期日：新車は登録日（無ければ初度登録）から。中古新規は車検満了日から逆算
+const vehInspDue=(v,kind)=>{
+  const base=vehBase(v);
+  // 1か月・6か月（新車の無料点検）は、初回車検までの新車の時だけ
+  if(kind==='m1')return vehIsNewPeriod(v)?vehAddMonths(base,1):'';
+  if(kind==='m6')return vehIsNewPeriod(v)?vehAddMonths(base,6):'';
+  const list=vehM12List(v);
+  return list[Math.min(vehM12Done(v),list.length-1)]||'';
+};
+// 状態：done／plan（まだ先）／yellow（そろそろ）／red（急ぎ・超過）
+const vehInspState=(v,kind,cfg)=>{
+  const c=vehAlertCfg(cfg);
+  const rec=(v.inspections||{})[kind];
+  // ★日付が分からない「済」も扱う（done:true）。12か月は「何回済んだか」で見る
+  let done=false,doneAt='';
+  if(kind==='m12'){
+    const list=vehM12List(v), n=vehM12Done(v);
+    done=list.length>0&&n>=list.length;                       // 全部済んだ
+    const last=Array.isArray(rec)?rec[n-1]:null;
+    doneAt=(last&&last.doneAt)||'';
+  }else{
+    done=!!(rec&&(rec.done||rec.doneAt));
+    doneAt=(rec&&rec.doneAt)||'';
+  }
+  const due=vehInspDue(v,kind);
+  const round=kind==='m12'?(vehM12Done(v)+1):0;
+  const rounds=kind==='m12'?vehM12List(v).length:0;
+  if(done)return{s:'done',due,left:null,doneAt,round,rounds};
+  if(!due)return{s:'none',due:'',left:null,round,rounds};
+  const left=vehDays(due);
+  const y=kind==='m1'?c.y1:kind==='m6'?c.y6:c.y12;      // 黄：この日数前から
+  const o=kind==='m1'?c.o1:kind==='m6'?c.o6:c.o12;      // オレンジ：この日数前から
+  if(left==null)return{s:'none',due,left:null,round,rounds};
+  if(left<0)return{s:'red',due,left,round,rounds};       // 期日を過ぎた
+  if(left<=o)return{s:'orange',due,left,round,rounds};
+  if(y>0&&left<=y)return{s:'yellow',due,left,round,rounds};
+  return{s:'plan',due,left,round,rounds};
+};
+const vehExpiryState=(v,cfg)=>{
+  const c=vehAlertCfg(cfg); const left=vehDays(v.expiry);
+  if(left==null)return{s:'none',left:null};
+  if(left<=-c.rCar)return{s:'red',left};
+  if(left<=c.yCar)return{s:'yellow',left};
+  return{s:'ok',left};
+};
+const vehPlate4=num=>{const m=String(num||'').match(/(\d{1,4})(?!.*\d)/);return m?m[1]:'';};
+const vehFmt=iso=>{ if(!iso)return'—'; const p=String(iso).split('-'); return p.length>=3?(p[0]+'/'+Number(p[1])+'/'+Number(p[2])):(p[0]+'/'+Number(p[1]||1)); };
+// ============================================
+//  車両管理画面（車検証＋点検管理）＝ 旧版。v2 に置き換えたが部品は残してある
 // ============================================
 const ALERT_DAYS_VEHICLE = 90; // 90日前からアラート
 
@@ -10363,7 +11033,9 @@ function AppInner() {
   const [rentalResData,setRentalResData,updateLocalRres]= useShared(STOR+'rres',              {},15000);
   const [carTireData,  setCarTireData]  = useShared(STOR+'tiredata',{},60000); // {carId: 'summer'|'winter'|'all'}
   const [rentalLocData,setRentalLocData]= useShared(STOR+'rentaloc',          {}); // {carId: 'honten'|'sanda'|'out'}
-  const [vehicleData,  setVehicleData]  = useShared(STOR+'vehicles', []);          // 車両管理（車検証＋点検）
+  const [vehicleData,  setVehicleData]  = useShared(STOR+'vehicles', []);          // 車両管理（旧版。消さずに残す）
+  // ★車両管理 v2（2026-10-05）。取り込みは node fb_import_vehicles.js
+  const [vehicleV2,    setVehicleV2]    = useShared(STOR+'vehicles-v2', []);
   const [showLoanerSettings, setShowLoanerSettings] = useState(false);
   const [showTireEdit,       setShowTireEdit]        = useState(false);
   const [showLocationEdit,   setShowLocationEdit]    = useState(false);
@@ -10398,6 +11070,7 @@ function AppInner() {
           const v=mutate(base2);
           if(v!==undefined){
             // ★ここで変えた所を「自分が書いた分」として覚える（2026-10-06）。
+            //   次の保存のとき、サーバーがまだ知らないこの予約を土台に足し直せる。
             //   useShared の update を通らない書き方なので、ここで明示的に覚える必要がある。
             try{ shMineMark(key, seed||{}, v); }catch(e){}
             updateLocal(v);
@@ -12133,6 +12806,7 @@ function AppInner() {
 
   // ★納車済みチェック（2026-10-06 ユーザー指摘）。
   //   入庫（arrived）とは**別の印**。納車日の行でだけ押せて、納車が終わってから付ける。
+  //   同じ予約でも「入庫した」と「納車した」は別のことなので、印を分ける。
   const deliveredKey=(dk,row,idx)=>arrivedKey(dk,row,idx)+'|D';
   const shownDelivered=useCallback((k,row)=>{
     const o=arrivedOvRef.current[k];
@@ -12527,7 +13201,8 @@ function AppInner() {
     for(const k in n0){ const p=String(k).split('::');
       if(p.length===2&&p[1]===oldName){ o3[p[0]+'::'+newName]=n0[k]; delete o3[k]; hit3=true; } }
     if(hit3)setNt(o3);
-    if(o1||o2||hit3)console.info('[staff] 名前の変更にあわせて休日データも直しました',oldName,'→',newName);
+    const cnt=(o1?Object.keys(o1).filter(k=>(o1[k]||[]).includes(newName)).length:0);
+    if(o1||o2||hit3)console.info('[staff] 名前の変更にあわせて休日データも直しました',oldName,'→',newName,cnt+'日');
   },[dayOffDataH,dayOffDataS,setDayOffDataH,setDayOffDataS,
      paidLeaveDataH,paidLeaveDataS,setPaidLeaveDataH,setPaidLeaveDataS,
      offNoteH,offNoteS,setOffNoteH,setOffNoteS]);
@@ -12932,14 +13607,24 @@ function AppInner() {
                   });
                   const ExtMark=()=>(<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,opacity:.8}}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>);
                   const today=new Date();today.setHours(0,0,0,0);
-                  const alertCnt=Array.isArray(vehicleData)?vehicleData.filter(v=>{
-                    if(!Array.isArray(v.inspections))return false;
-                    return v.inspections.some(ins=>{
-                      if(ins.completed||!ins.scheduledDate)return false;
-                      const d=new Date(ins.scheduledDate);
-                      return Math.ceil((d-today)/(1000*60*60*24))<=90;
+                  // ★車両管理の知らせは「△に！」の印（数字はやめた・2026-10-05 ユーザー指示）。
+                  //   黄色のアラートがあれば黄／オレンジがあればオレンジ／赤があれば赤。3秒だけ動く。
+                  const vehCfg=vehAlertCfg(((Array.isArray(vehicleV2)?vehicleV2:[]).find(x=>x&&x.id==='__cfg__')||{}).cfg);
+                  const vehLevel=(()=>{
+                    let lv=0;
+                    (Array.isArray(vehicleV2)?vehicleV2:[]).forEach(v=>{
+                      if(!v||v.id==='__cfg__'||v.archived)return;
+                      vehAlertKinds(v).forEach(k=>{
+                        const st=vehInspState(v,k,vehCfg).s;
+                        if(st==='red')lv=Math.max(lv,3);
+                        else if(st==='orange')lv=Math.max(lv,2);
+                        else if(st==='yellow')lv=Math.max(lv,1);
+                      });
+                      const ex=vehExpiryState(v,vehCfg).s;
+                      if(ex==='red')lv=Math.max(lv,3); else if(ex==='yellow')lv=Math.max(lv,1);
                     });
-                  }).length:0;
+                    return lv;
+                  })();
                   return(<>
                     <button onClick={()=>setView('calendar')} {...hov(view==='calendar')}
                       style={navSty(view==='calendar',{background:'#FFFFFF',color:'#1A2550'})}>
@@ -12972,7 +13657,13 @@ function AppInner() {
                     <button onClick={()=>setView('vehicle')} {...hov(view==='vehicle')}
                       style={navSty(view==='vehicle',{background:'#F8CACA',color:'#8B2E2E'})}>
                       🔔 車両管理
-                      {alertCnt>0&&<span style={{position:'absolute',top:-6,right:10,width:16,height:16,borderRadius:'50%',background:'#D6363B',color:'#FFFFFF',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{alertCnt}</span>}
+                      {vehLevel>0&&(
+                        <span title={vehLevel===3?'期日を過ぎた点検があります':vehLevel===2?'もうすぐ期日の点検があります':'そろそろ点検の時期です'}
+                          style={{position:'absolute',top:-9,right:4,fontSize:17,lineHeight:1,fontWeight:900,
+                            color:vehLevel===3?'#dc2626':vehLevel===2?'#f97316':'#eab308',
+                            textShadow:'0 0 2px rgba(255,255,255,.95),0 1px 2px rgba(0,0,0,.25)',
+                            animation:'vehMove .75s ease-in-out 4'}}>⚠</span>
+                      )}
                     </button>
                   </>);
                 })()}
@@ -13454,6 +14145,7 @@ function AppInner() {
                   const working=storeHoliday?[]:currentStaffList.filter(s=>!manualOffs.includes(s.name));
                   // ★休日に入っている名前は、名簿に無くても**必ず出す**（2026-10-06 ユーザー報告）。
                   //   名簿を名前で絞り込んでいたため、名前を変えた人の休日が黙って消えていた。
+                  //   カレンダーは出る／スケジュールは出ない、の食い違いの正体がこれ。
                   const dayoff=storeHoliday
                     ?currentStaffList.map(s=>({id:s.id||s.uid||s.name,name:s.name,unknown:false}))
                     :manualOffs.map(n=>{
@@ -14108,7 +14800,7 @@ function AppInner() {
         )}
         {view==='vehicle'&&(
           <div style={{padding:'0 16px 16px'}}>
-            <VehicleView vehicleData={vehicleData} setVehicleData={setVehicleData}
+            <VehicleView2 rows={vehicleV2} setRows={setVehicleV2} currentUser={currentUser}
               loanerH={dynLoanerListH} loanerS={dynLoanerListS} rentalList={dynRentalCars}
               onSaveLoanerH={v=>setLoanerListH(v)} onSaveLoanerS={v=>setLoanerListS(v)} onSaveRental={v=>setRentalCars(v)}/>
           </div>

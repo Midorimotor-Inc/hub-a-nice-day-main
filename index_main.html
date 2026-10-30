@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- fixed-holiday-1778028748861 force-deploy-1793327262911 -->
+<!-- fixed-holiday-1778028748861 force-deploy-1793349364907 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -22,7 +22,7 @@
     // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
     // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
     // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-    window.__APP_BUILD='build-1793327262911';
+    window.__APP_BUILD='build-1793349364907';
     (function(){
       var RUNNING=window.__APP_BUILD, shown=false, checking=false;
       function runningVer(){
@@ -123,7 +123,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.84.0';
+const APP_VERSION = '3.86.0';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -401,12 +401,30 @@ const HubCloseHelp=({onClose})=>(
 //   定休日・第2火曜・手動の休業日は「色分けせず同じ見た目」にする（2026-07-30 ユーザー決定・A案）。
 //   従来は極薄の斜線（#f9fafb/#f3f4f6）で、しかも空の6コマが営業日と同じに描かれるため
 //   「まだ予約を入れられる日」に見えていた。ベタ塗りで沈め、コマを消し、中央に「休業日」と出す。
-//   配色はスタッフ休日（オレンジ #f97316 系）に揃える（2026-08-01 ユーザー決定）。
-//   スタッフ休日セル（背景 #fff7ed＋オレンジ枠）より一段濃い背景にして、休業日と休日を見分けられるようにしている。
-const CLOSED_BG    = '#ffedd5'; // 休業日セルの背景（ライトオレンジのベタ塗り）
-const CLOSED_FG    = '#b45309'; // 休業日セルの日付・文字色
-const CLOSED_BAR   = 'inset 4px 0 0 #f97316'; // 左端の縦バー＝隣の営業日との区切り（オレンジ）
+//   ★配色は【赤】（2026-10-30 ユーザー決定）。mock_week_closed.html に5案ならべて
+//     「B案の地＋D案の札」を選んだ。あわせて【Hub ぜんぶの休業日】をこの赤にそろえる。
+//     それまではスタッフ休日（#fff7ed のオレンジ）と地続きに見えて、
+//     「店が休み」なのか「誰かが休み」なのかが見分けにくかった。
+//   ★入庫制限（#fff5f5＋赤の斜めしま）・車検の台数制限いっぱい（#fee2e2）とは色をずらしてある。
+//     この3つは同じ赤系なので、濃さを変える時は必ず並べて見比べること。
+const CLOSED_BG    = '#fecaca'; // 休業日セルの背景（赤のベタ塗り）
+const CLOSED_FG    = '#991b1b'; // 休業日セルの日付・文字色
+const CLOSED_BAR   = 'inset 4px 0 0 #b91c1c'; // 左端の縦バー＝隣の営業日との区切り（濃い赤）
 const CLOSED_LABEL = '休業日';
+// 「休業日」を札（濃い赤に白抜き）で出す時の色。週間カレンダーの車検の欄で使う
+const CLOSED_TAG_BG = '#dc2626';
+const CLOSED_TAG_FG = '#ffffff';
+
+// ── 「！」の丸（車検カレンダー・ダッシュボード共通）──
+//   2026-10-30 ユーザー指示。17px の白ふち付きでは小さくて見落とすため、
+//   大きさ 26px・白ふちなし・黄色は蛍光（#fff200）にそろえた。
+//   ★黄色＝まだ承認されていない／緑＝承認は済んでいる。この意味は変えていない。
+//   ★ダッシュボードのボタンの上に出す分だけは、濃い青の帯に沈むので白ふちを残す。
+const CALBANG      = 26;        // 車検カレンダーの「！」の直径（px）
+const CALBANG_YEL  = '#fff200'; // まだ承認されていない時の黄色（蛍光）
+const CALBANG_GRN  = '#22c55e'; // 承認は済んでいる時の緑
+const DASHBANG     = 23;        // ダッシュボードのボタンに出る「！」の直径（px）
+const WBANG        = 16;        // 週間カレンダーの車検バッジに出る「！」の直径（px）
 // 休業日セルの中央に置くラベル（topOffset=日付表示の下から始める）
 const ClosedMark = ({small,topOffset=26})=>(
   <div style={{position:'absolute',left:6,right:6,top:topOffset,bottom:6,display:'flex',alignItems:'center',
@@ -1466,9 +1484,43 @@ const resolveOrderSlot = (orderDate, mailing2) => {
 //   ネイティブの type="date" は、入ると Windows の IME が英数になり、次の「備考」へ移っても
 //   ひらがな に戻らない。予約カード（納車日）と同じやり方で、ボタン＋自前のカレンダーにする。
 //   入力欄に focus しないので IME を落とさない。値は今までどおり "YYYY-MM-DD" の文字列。
+// ★カレンダーのポップの大きさ（2026-10-30 ユーザー指示・モックの「大」）。
+//   幅238・マス6px では小さくて押しにくかった。幅360・マス14px にする。
+const DP_W=360, DP_CELL=14, DP_FS=16, DP_HEAD=15, DP_H=430;
 const HubDatePick = ({value,onChange,placeholder='日付を選ぶ',style,color='#1d4ed8',clearable=true,icon='📅',fmt,txColor})=>{
   const [open,setOpen]=useState(false);
   const [mon,setMon]=useState(null);
+  // ★ポップは【画面に対して】出す（position:fixed）。2026-10-30 ユーザー指示。
+  //   absolute のままだと、代車の編集モーダル（overflowY:auto・maxHeight:88vh）に
+  //   切られて、スクロールしないと下半分が見えなかった。
+  //   ★入れ物の形に頼らないこと。モーダルの大きさを変えても勝手に直ってはくれない。
+  const [pos,setPos]=useState(null);
+  const wrapRef=useRef(null);
+  const popRef=useRef(null);
+  const hRef=useRef(DP_H);   // ポップの高さ。描いたあとに実測して入れ替える（月によって行数が変わるため）
+  const place=()=>{
+    const el=wrapRef.current; if(!el)return;
+    const r=el.getBoundingClientRect(),h=hRef.current;
+    const left=Math.max(8,Math.min(r.left,window.innerWidth-DP_W-8));
+    let top=r.bottom+4;
+    if(top+h>window.innerHeight-8)top=r.top-h-4;      // 下に入らなければ上に出す
+    if(top<8)top=Math.max(8,window.innerHeight-h-8);  // それでも入らなければ画面に収める
+    setPos(p=>(p&&p.left===left&&p.top===top)?p:{left,top});
+  };
+  // ★高さは【実測】する。決め打ちの数字だと、6行の月や字の大きさを変えた時にまた下がはみ出す。
+  useLayoutEffect(()=>{
+    if(!open||!popRef.current)return;
+    const h=popRef.current.offsetHeight;
+    if(h&&Math.abs(h-hRef.current)>2){hRef.current=h;place();}
+  });
+  useEffect(()=>{
+    if(!open)return;
+    place();
+    const f=()=>place();
+    window.addEventListener('resize',f);
+    window.addEventListener('scroll',f,true);   // true＝モーダルの中のスクロールも拾う
+    return ()=>{window.removeEventListener('resize',f);window.removeEventListener('scroll',f,true);};
+  },[open]);
   const monOf=()=>{const p=String(value||'').split('-').map(Number);
     return (p.length===3&&p[0])?{year:p[0],month:p[1]-1}:{year:new Date().getFullYear(),month:new Date().getMonth()};};
   const pick=(y,m,d)=>{onChange(`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`);setOpen(false);};
@@ -1478,7 +1530,7 @@ const HubDatePick = ({value,onChange,placeholder='日付を選ぶ',style,color='
     if(fmt)return fmt(String(value),dt);
     return `${Number(p[1])}/${Number(p[2])}（${['日','月','火','水','木','金','土'][dt.getDay()]}）`;};
   return(
-    <div style={{position:'relative'}}>
+    <div ref={wrapRef} style={{position:'relative'}}>
       <button type="button" data-datepick="1" onClick={()=>{setMon(monOf());setOpen(o=>!o);}}
         style={{...(style||{}),textAlign:'left',cursor:'pointer',display:'flex',alignItems:'center',gap:7,fontFamily:'inherit'}}>
         {icon&&<span style={{fontSize:13}}>{icon}</span>}
@@ -1488,19 +1540,24 @@ const HubDatePick = ({value,onChange,placeholder='日付を選ぶ',style,color='
             style={{marginLeft:'auto',color:'#9ca3af',fontSize:13,padding:'0 2px'}}>✕</span>
         )}
       </button>
-      {open&&mon&&(
-        <div style={{position:'absolute',top:'100%',left:0,zIndex:9999,marginTop:4,background:'white',borderRadius:10,
-          boxShadow:'0 8px 30px rgba(0,0,0,0.25)',padding:12,minWidth:238,border:`2px solid ${color}`}}>
+      {/* ★ポップは document.body へ出す（ポータル）。
+          モーダルの箱（.modal-box）には開く時のアニメーションが残っていて transform が効いている。
+          transform のある箱の中では position:fixed が【画面】ではなく【その箱】を基準にしてしまい、
+          いくら画面に収めて計算しても下がはみ出していた（2026-10-30）。
+          ★React の行事（クリック等）は React の木をたどるので、モーダルの stopPropagation はそのまま効く。 */}
+      {open&&mon&&pos&&ReactDOM.createPortal(
+        <div data-datepop="1" ref={popRef} style={{position:'fixed',top:pos.top,left:pos.left,zIndex:9999,background:'white',borderRadius:10,
+          boxShadow:'0 8px 30px rgba(0,0,0,0.25)',padding:12,width:DP_W,maxHeight:'calc(100vh - 16px)',overflowY:'auto',border:`2px solid ${color}`}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
             <button type="button" onClick={()=>setMon(p=>{const d=new Date(p.year,p.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
               data-mnav="prev" style={{background:'none',border:'none',cursor:'pointer',fontSize:17,padding:'2px 9px',fontFamily:'inherit'}}>‹</button>
-            <span data-mon={mon.year+'-'+String(mon.month+1).padStart(2,'0')} style={{fontWeight:700,fontSize:13,color:'#1f2937'}}>{mon.year}年{mon.month+1}月</span>
+            <span data-mon={mon.year+'-'+String(mon.month+1).padStart(2,'0')} style={{fontWeight:700,fontSize:DP_HEAD,color:'#1f2937'}}>{mon.year}年{mon.month+1}月</span>
             <button type="button" onClick={()=>setMon(p=>{const d=new Date(p.year,p.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}
               data-mnav="next" style={{background:'none',border:'none',cursor:'pointer',fontSize:17,padding:'2px 9px',fontFamily:'inherit'}}>›</button>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',marginBottom:2}}>
             {['日','月','火','水','木','金','土'].map((d,i)=>(
-              <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,padding:'2px 0',
+              <div key={d} style={{textAlign:'center',fontSize:DP_FS-2,fontWeight:700,padding:'3px 0',
                 color:i===0?'#ef4444':i===6?'#2563eb':'#9ca3af'}}>{d}</div>))}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
@@ -1509,16 +1566,16 @@ const HubDatePick = ({value,onChange,placeholder='日付を選ぶ',style,color='
               for(let d=1;d<=days;d++){
                 const v=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,on=String(value||'')===v;
                 cells.push(<button type="button" key={d} data-day={v} onClick={()=>pick(yr,mo,d)}
-                  style={{padding:'6px 0',borderRadius:6,fontFamily:'inherit',cursor:'pointer',fontSize:12,
+                  style={{padding:DP_CELL+'px 0',borderRadius:6,fontFamily:'inherit',cursor:'pointer',fontSize:DP_FS,
                     border:on?`2px solid ${color}`:'1px solid #e5e7eb',background:on?color:'white',
                     color:on?'white':'#374151',fontWeight:on?800:500}}>{d}</button>);}
               return cells;})()}
           </div>
           <button type="button" onClick={()=>setOpen(false)}
-            style={{marginTop:8,width:'100%',padding:'5px',background:'#f3f4f6',border:'none',borderRadius:6,
-              cursor:'pointer',fontSize:11,color:'#6b7280',fontFamily:'inherit'}}>閉じる</button>
+            style={{marginTop:8,width:'100%',padding:'8px',background:'#f3f4f6',border:'none',borderRadius:6,
+              cursor:'pointer',fontSize:13,color:'#6b7280',fontFamily:'inherit'}}>閉じる</button>
         </div>
-      )}
+      ,document.body)}
     </div>
   );
 };
@@ -4489,6 +4546,9 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
   //   （2026-10-30 ユーザー決定。太さ4種・明るさ5種を見比べて決めた）
   const TODAY_LINE='#fb923c';
   const TODAY_W='5px';
+  // ★休業日の札（車検の欄）。高さは車検のバッジ2段（19px×2＋すき間）に合わせてある
+  const CLOSED_TAG={display:'flex',alignItems:'center',justifyContent:'center',minHeight:38,
+    background:CLOSED_TAG_BG,borderRadius:6,color:CLOSED_TAG_FG,fontSize:17,fontWeight:900,letterSpacing:4};
   // ★見出しの右端の四角いボタン（⛶ と ✕ で共用。大きさを必ず揃える・2026-10-30 ユーザー指示）
   const WHDR_SQ={width:32,height:26,padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',
     background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
@@ -4815,8 +4875,10 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
                 {days.map((d,i)=>{const dk=dkOf(d),cl=isClosed(d);
                   const dowCol=weekDowCol(d);
                   const hDim=!!(sr&&sr.dayDim[dk]);
-                  return <th key={dk} data-wtoday={dk===todayDk?'1':'0'} data-wdim={hDim?'1':'0'}
-                    style={{...TH,...(dk===todayDk?{background:'#ffedd5',borderTop:TODAY_W+' solid '+TODAY_LINE}:{}),...todayCol(dk),
+                  // ★休業日は【見出しから下まで】赤（2026-10-30 ユーザー指示）。本日の枠より後に置いて、休業日が勝つようにする
+                  return <th key={dk} data-wtoday={dk===todayDk?'1':'0'} data-wdim={hDim?'1':'0'} data-wclhead={cl?'1':'0'}
+                    style={{...TH,...(dk===todayDk?{background:'#ffedd5',borderTop:TODAY_W+' solid '+TODAY_LINE}:{}),
+                      ...(cl?{background:CLOSED_BG,boxShadow:CLOSED_BAR}:{}),...todayCol(dk),
                       position:'relative'}}>
                     <PastOv dk={dk}/>
                     {hDim&&<DimOv/>}
@@ -4824,9 +4886,9 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
                     <button data-wday={dk} title={(d.getMonth()+1)+'/'+d.getDate()+' のスケジュールを開く'}
                       onClick={()=>onPickDay&&onPickDay(d.getFullYear(),d.getMonth(),d.getDate())}
                       style={{display:'inline-flex',alignItems:'center',gap:3,padding:'3px 11px',borderRadius:14,
-                        border:'1.5px solid '+(dk===todayDk?'#0e7490':'#cbd5e1'),
+                        border:'1.5px solid '+(dk===todayDk?'#0e7490':cl?'#b91c1c':'#cbd5e1'),
                         background:dk===todayDk?'#0e7490':'white',
-                        color:dk===todayDk?'white':dowCol,
+                        color:dk===todayDk?'white':cl?CLOSED_FG:dowCol,
                         fontSize:11.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
                       {(d.getMonth()+1)+'/'+d.getDate()+'（'+weekDowOf(d)+'）'}
                     </button>
@@ -4835,7 +4897,6 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
                       style={{marginLeft:5,display:'inline-flex',alignItems:'center',padding:'2px 7px',borderRadius:9,
                         border:'1px solid #fed7aa',background:'#fff7ed',color:'#9a3412',
                         fontSize:11,fontWeight:900,whiteSpace:'nowrap',verticalAlign:'middle'}}>{inspOf(dk).length}台</span>}
-                    {cl&&<div style={{fontWeight:700,color:CLOSED_FG,fontSize:10}}>{CLOSED_LABEL}</div>}
                   </th>;})}
               </tr>
             </thead>
@@ -4845,8 +4906,12 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
                 <td style={{...TM,background:'#fff7ed',color:'#9a3412'}}>車検</td>
                 {days.map(d=>{const dk=dkOf(d);
                   const iDim=!!(sr&&(sr.dayDim[dk]||find.kind==='sched'));
-                  if(isClosed(d))return <td key={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,...todayCol(dk),
-                    position:'relative'}}><PastOv dk={dk}/>{iDim&&<DimOv/>}</td>;
+                  // ★休業日は【車検の欄に大きく出す】（2026-10-30 ユーザー指示）。
+                  //   列ぜんぶが赤（CLOSED_BG）なだけでは「休みなのか空いているのか」が
+                  //   ひと目で分からなかった。札は濃い赤に白抜き（mock_week_closed.html の D案）。
+                  if(isClosed(d))return <td key={dk} data-wclosed={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,...todayCol(dk),
+                    padding:'3px',position:'relative'}}><PastOv dk={dk}/>{iDim&&<DimOv/>}
+                    <div style={CLOSED_TAG}>{CLOSED_LABEL}</div></td>;
                   // ★台数制限（2026-10-23 ユーザー指示）。制限をかけた日は「最大N台」を出し、
                   //   **その台数に達したら**（＝もう受けられない）欄ぜんぶを赤い網掛けにする。
                   const lim=(inspLimits||{})[dk];
@@ -4879,11 +4944,13 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
                               style={{...CB,position:'relative',background:(c&&c.color)||'#64748b',
                                 ...(oth?{border:'1.5px solid white',boxShadow:'0 0 0 1.5px '+((c&&c.color)||'#64748b')}:{})}}>
                               {(c&&c.initial)||'？'}
-                              {bang&&<span data-wbangdot={bang} style={{position:'absolute',top:-6,right:-6,width:14,height:14,
+                              {/* ★白ふちは付けない（2026-10-30 ユーザー指示）。色は車検カレンダーの「！」と同じ。
+                                  ふちを外したぶん、コースの色の上で沈まないよう 14→16px にして影を濃くした。 */}
+                              {bang&&<span data-wbangdot={bang} style={{position:'absolute',top:-7,right:-7,width:WBANG,height:WBANG,
                                 borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
-                                fontSize:10,fontWeight:900,color:'#111',border:'1.5px solid #fff',lineHeight:1,
-                                background:bang==='ok'?'#22c55e':'#facc15',
-                                boxShadow:'0 1px 3px rgba(0,0,0,.3)',pointerEvents:'none'}}>!</span>}
+                                fontSize:Math.round(WBANG*0.72),fontWeight:900,color:'#111',lineHeight:1,paddingBottom:1,
+                                background:bang==='ok'?CALBANG_GRN:CALBANG_YEL,
+                                boxShadow:'0 1px 4px rgba(0,0,0,.5)',pointerEvents:'none'}}>!</span>}
                             </button>;})}
                         </div>
                       ))}
@@ -5074,9 +5141,13 @@ const DashboardModal = memo(({isOpen,onClose,inspData,usrChk,onSetChecked,onPick
     return true;
   });
 
-  const TH={padding:'8px 10px',fontSize:11.5,fontWeight:800,color:'#64748b',background:'#f8fafc',
-    textAlign:'left',whiteSpace:'nowrap',borderBottom:'1px solid #e2e8f0'};
-  const TD={padding:'8px 10px',fontSize:13.5,borderBottom:'1px solid #eef2f6',verticalAlign:'middle'};
+  // ★マスの線は【週間カレンダーと同じ濃さ】（2026-10-30 ユーザー指示）。
+  //   うすい線（#e2e8f0／#eef2f6）だと、どの行のどの欄を見ているのか目で追えなかった。
+  //   下だけでなく左右にも引く＝ちゃんと「マス」にする。線はこの1つで決めること。
+  const DLINE='#64748b';
+  const TH={padding:'8px 10px',fontSize:11.5,fontWeight:800,color:'#475569',background:'#f1f5f9',
+    textAlign:'left',whiteSpace:'nowrap',border:'1px solid '+DLINE};
+  const TD={padding:'8px 10px',fontSize:13.5,border:'1px solid '+DLINE,verticalAlign:'middle'};
   const PILL=(on)=>({padding:'7px 13px',borderRadius:20,border:'1.5px solid '+(on?'#1d4ed8':'#e2e8f0'),
     background:on?'#1d4ed8':'white',color:on?'white':'#64748b',fontSize:12,fontWeight:800,
     cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'});
@@ -5099,21 +5170,27 @@ const DashboardModal = memo(({isOpen,onClose,inspData,usrChk,onSetChecked,onPick
         <div style={{flexShrink:0,display:'flex',alignItems:'center',gap:12,padding:'8px 14px',
           background:headColor||'linear-gradient(135deg,#1e3a8a,#1d4ed8)',color:'white'}}>
           <b style={{fontSize:16,fontWeight:800,whiteSpace:'nowrap'}}>🏠 ダッシュボード</b>
-          {page!=='home'&&(
-            <button data-dashback="1" onClick={()=>setPage('home')} title="ダッシュボードの入口に戻る"
-              style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
-                padding:'5px 12px',fontSize:12.5,fontWeight:800,color:'white',cursor:'pointer',
-                fontFamily:'inherit',whiteSpace:'nowrap'}}>← ダッシュボードに戻る</button>
-          )}
           {page==='shaken'&&(
             <span style={{fontSize:11.5,background:'rgba(255,255,255,.22)',padding:'3px 9px',borderRadius:9,
               fontWeight:700,whiteSpace:'nowrap'}}>車検済みチェック（使用者の確認）</span>
           )}
           <span style={{fontSize:12.5,opacity:.95,whiteSpace:'nowrap'}}>{storeName}</span>
           <span style={{flex:1}}/>
+          {/* ★「ダッシュボードに戻る」は【閉じるの左どなり】（2026-10-30 ユーザー指示）。
+              広げる・戻る・閉じるを右端にまとめる＝週間カレンダーの ⛶／✕ と同じ考え方。 */}
+          {page!=='home'&&(
+            <button data-dashback="1" onClick={()=>setPage('home')} title="ダッシュボードの入口に戻る"
+              style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+                padding:'5px 12px',fontSize:12.5,fontWeight:800,color:'white',cursor:'pointer',
+                fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}}>← ダッシュボードに戻る</button>
+          )}
+          {/* ★閉じるは【✕ だけの赤いボタン】（2026-10-30 ユーザー指示）。字は出さない。
+              何のボタンかは、なぞると出る説明（title）で分かる。 */}
           <button data-dashclose="1" onClick={onClose} title="閉じる"
-            style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
-              padding:'5px 13px',fontSize:13,fontWeight:900,color:'white',cursor:'pointer',fontFamily:'inherit'}}>✕ 閉じる</button>
+            style={{width:32,height:26,padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',
+              background:'#dc2626',border:'1px solid rgba(255,255,255,.9)',borderRadius:7,
+              fontSize:13,fontWeight:900,color:'white',cursor:'pointer',fontFamily:'inherit',lineHeight:1,
+              flexShrink:0}}>✕</button>
         </div>
 
         <div style={{flex:1,minHeight:0,overflow:'auto',padding:'12px 14px 40px'}}>
@@ -5290,7 +5367,7 @@ const DashboardModal = memo(({isOpen,onClose,inspData,usrChk,onSetChecked,onPick
                   )}
                 </div>
                 <table style={{width:'100%',borderCollapse:'collapse',background:'white',
-                  border:'1px solid #e2e8f0',borderRadius:12,overflow:'hidden'}}>
+                  border:'1px solid '+DLINE}}>
                   <thead><tr>
                     <th style={{...TH,width:84}}>車検日</th>
                     <th style={{...TH,width:'19%'}}>顧客名（来店者）</th>
@@ -5330,8 +5407,8 @@ const DashboardModal = memo(({isOpen,onClose,inspData,usrChk,onSetChecked,onPick
                                 :<span style={{fontSize:11,fontWeight:700,color:'#64748b'}}> （同じ）</span>}
                             </>)}
                           </td>
-                          <td style={{...TD,color:'#64748b'}}>{x.r.carType||''}　{x.r.no||''}</td>
-                          <td style={{...TD,color:'#64748b',whiteSpace:'nowrap'}}>{x.r.staff||''}</td>
+                          <td style={TD}>{x.r.carType||''}　{x.r.no||''}</td>
+                          <td style={{...TD,whiteSpace:'nowrap'}}>{x.r.staff||''}</td>
                           <td style={{...TD,textAlign:'center'}}>
                             <span data-dashmark={ck?'1':'0'} title={ck?('確認ずみ'+(dashStamp(ck)?'　'+dashStamp(ck):'')+'（押すと取り消し）'):'確認したら押す'}
                               onClick={()=>onSetChecked([{dk:x.dk,key:x.key}],!ck)}
@@ -7046,7 +7123,7 @@ const FindModal=memo(({isOpen,onClose,inspData,schedDataH,schedDataS,onGo,onGoCu
           <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',borderRadius:'50%',width:30,height:30,cursor:'pointer',color:'white',fontSize:15}}>×</button>
         </div>
         <div style={{display:'flex',gap:8,padding:12,borderBottom:'1px solid #e5e7eb',background:'#fafafa',flexShrink:0}}>
-          <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} placeholder="例：セリエ / ハイエース / 1386 / 090"
+          <input ref={inputRef} data-searchq="1" value={q} onChange={e=>setQ(e.target.value)} placeholder="名前 / 車種 / ナンバー4桁 / 電話番号"
             style={{flex:1,padding:'10px 12px',border:'2px solid #fdba74',borderRadius:9,fontSize:15,outline:'none'}}/>
           <span style={{alignSelf:'center',fontSize:12,color:'#64748b',whiteSpace:'nowrap'}}>{nq?total+'件':(custBusy?'顧客ファイル読込中…':'')}</span>
         </div>
@@ -11511,6 +11588,99 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
       :{boxShadow:'inset 0 0 0 3px #dc2626',background:'#fee2e2'};
   };
 
+  // ★★ 帯の端をつかんで横に伸ばす＝貸出期間を変える（2026-10-30 ユーザー要望）★★
+  //   それまでは【代車管理の編集モーダルを開く】か【予約カードで一度消して取り直す】しかなかった。
+  //   ・右の端＝返却日。★すでに貸し出しが始まっていても変えられる（延長・早め返却は日常的に起きる）
+  //   ・左の端＝貸出日。★まだ始まっていない予約だけ（もう渡した車の貸出日は動かせない）
+  //   ・ほかの予約と重なる所までは伸ばせない。赤く出して、離しても何もしない。
+  //   ・1日より短くはできない（返却日は貸出日以降）。
+  //   ★入れ替え（上下＝車を変える mvDrag）とは別のもの。つかむ所を分けてあるので混ざらない。
+  const [rsDrag,setRsDrag]=useState(null);   // {kind,carId,res,side:'start'|'end',num}
+  const rsJust=useRef(false);                // 伸ばした直後の click（＝中身を出す）を無視する
+  const RS_W=8;                              // つかむ所の幅（px）
+  const rsShift=(n,k)=>{const y=Math.floor(n/10000),m=Math.floor(n/100)%100-1,d=n%100;
+    const dt=new Date(y,m,d+k);return toNum(dt.getFullYear(),dt.getMonth(),dt.getDate());};
+  // この端をつかんでよいか（だめな時は理由を返す）
+  const rsWhyNot=(r,side)=>{
+    if(!r)return '予約が見つかりません';
+    if(side==='end')return '';                                   // 返却日はいつでも変えられる
+    if(resStartNum(r)<=_todayNum)return 'もう貸し出しが始まっているので、貸出日は動かせません。'+String.fromCharCode(10)+'（返却日なら右の端をつかんで変えられます）';
+    return '';
+  };
+  // いまの引っぱり先で、ほかの予約と重なっていないか
+  const rsOk=(d)=>{
+    if(!d)return false;
+    const r=d.res;
+    const s0=d.side==='start'?d.num:toNum(r.fy,r.fm,r.fd);
+    const e0=d.side==='end'  ?d.num:toNum(r.ty,r.tm,r.td);
+    if(s0>e0)return false;
+    const obj=d.kind==='rental'?(rentalRes||{}):(loanerRes||{});
+    const list=Object.values((obj[d.carId]||obj[String(d.carId)]||{}));
+    return !list.some(x=>x&&x.id!==r.id&&!(toNum(x.ty,x.tm,x.td)<s0||toNum(x.fy,x.fm,x.fd)>e0));
+  };
+  const rsDown=(kind,carId,res,side,e)=>{
+    if(pickMode||!res)return;
+    e.preventDefault(); e.stopPropagation();                      // ★入れ替えドラッグに渡さない
+    const why=rsWhyNot(res,side);
+    if(why){alert(why);return;}
+    setRsDrag({kind,carId,res,side,num:side==='start'?toNum(res.fy,res.fm,res.fd):toNum(res.ty,res.tm,res.td)});
+  };
+  // 引っぱっている間、マウスが乗った日を仮の端にする
+  const rsOverCell=(kind,carId,dateObj)=>{
+    if(!rsDrag||rsDrag.kind!==kind||rsDrag.carId!==carId)return;
+    const n=toNum(dateObj.year,dateObj.month,dateObj.day);
+    const r=rsDrag.res;
+    // 1日より短くはしない
+    const lim=rsDrag.side==='start'?Math.min(n,toNum(r.ty,r.tm,r.td)):Math.max(n,toNum(r.fy,r.fm,r.fd));
+    if(lim===rsDrag.num)return;
+    setRsDrag(p=>p?{...p,num:lim}:p);
+  };
+  useEffect(()=>{
+    if(!rsDrag)return;
+    const up=()=>{
+      const d=rsDrag;
+      setRsDrag(null);
+      rsJust.current=true; setTimeout(()=>{rsJust.current=false;},250);
+      const r=d.res;
+      const was=d.side==='start'?toNum(r.fy,r.fm,r.fd):toNum(r.ty,r.tm,r.td);
+      if(d.num===was)return;                                      // 動いていない
+      if(!rsOk(d)){
+        alert('そこまでは伸ばせません。ほかの予約と重なります。'+String.fromCharCode(10)+'（別の車に移すなら、帯を上下にドラッグしてください）');
+        return;
+      }
+      const y=Math.floor(d.num/10000),m=Math.floor(d.num/100)%100-1,dd=d.num%100;
+      const patch=d.side==='start'?{fy:y,fm:m,fd:dd}:{ty:y,tm:m,td:dd};
+      if(d.kind==='rental')onReplaceRentalRes&&onReplaceRentalRes(d.carId,r.id,patch);
+      else onReplaceRes&&onReplaceRes(d.carId,r.id,patch);
+    };
+    window.addEventListener('mouseup',up);
+    return()=>window.removeEventListener('mouseup',up);
+  },[rsDrag,loanerRes,rentalRes]);
+  // 引っぱっている間の見た目：足す分は緑（重なるなら赤）、減らす分は薄く
+  const rsCellStyle=(kind,carId,dateObj)=>{
+    if(!rsDrag||rsDrag.kind!==kind||rsDrag.carId!==carId)return null;
+    const r=rsDrag.res, n=toNum(dateObj.year,dateObj.month,dateObj.day);
+    const s0=rsDrag.side==='start'?rsDrag.num:toNum(r.fy,r.fm,r.fd);
+    const e0=rsDrag.side==='end'  ?rsDrag.num:toNum(r.ty,r.tm,r.td);
+    const inNew=n>=s0&&n<=e0;
+    const inOld=n>=toNum(r.fy,r.fm,r.fd)&&n<=toNum(r.ty,r.tm,r.td);
+    const ok=rsOk(rsDrag);
+    if(inNew&&!inOld)return {boxShadow:'inset 0 0 0 3px '+(ok?'#22c55e':'#dc2626'),background:ok?'#dcfce7':'#fee2e2'};
+    if(inOld&&!inNew)return {opacity:.3};
+    return null;
+  };
+  // 帯の端につける「つかむ所」。左右にだけ出す
+  const RsGrip=({kind,carId,res,side})=>(
+    <div data-rsgrip={side} data-rsres={res.id} title={side==='end'?'右へ引っぱると返却日がのびます（左へ引っぱると縮みます）':'左右に引っぱると貸出日が変わります'}
+      onMouseDown={e=>rsDown(kind,carId,res,side,e)}
+      style={{position:'absolute',top:0,bottom:0,width:RS_W,zIndex:5,cursor:'ew-resize',
+        ...(side==='end'?{right:0}:{left:0}),
+        display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <span style={{width:3,height:16,borderRadius:2,background:'rgba(255,255,255,.95)',
+        boxShadow:'0 0 3px rgba(0,0,0,.6)',pointerEvents:'none'}}/>
+    </div>
+  );
+
   // -- pickModeのドラッグ操作 --
   const handleMD=(cid,dateObj,e)=>{
     if(!pickMode)return;
@@ -11521,6 +11691,8 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
   };
   // ★ドラッグ中はマウスの位置を見て端で自動スクロール（2026-10-02）
   const handleDragMove=(e)=>{
+    // ★端をつかんで伸ばしている最中も、表の端で自動で横に送る（表は約90日分ある）
+    if(rsDrag&&rsDrag.kind==='loaner'){edgeAutoScroll(gridRef.current,e.clientX);return;}
     if(!pickMode||!isDragging.current)return;
     edgeAutoScroll(gridRef.current,e.clientX);
   };
@@ -11769,7 +11941,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                 // 月が変わるタイミング
                 const isMonthStart=i===0||(dateRange[i-1]&&dateRange[i-1].month!==month);
                 // ★最適化は廃止したので「基準日」も無い（2026-10-07 ユーザー指示）
-                return <th key={i}
+                return <th key={i} data-ldaynum={toNum(year,month,day)}
                   style={{width:44,minWidth:44,maxWidth:44,textAlign:'center',padding:'3px 0',border:'1px solid #e5e7eb',fontSize:9,background:h2?'#fef08a':isMonthStart?'#ddd6fe':'#fff7ed',color:dow===0||isHol?'#dc2626':dow===6?'#1d4ed8':'#374151',fontWeight:h2?800:600,boxSizing:'border-box',position:'relative'}}>
                   {isMonthStart&&<div style={{fontSize:7,fontWeight:800,color:'#c2410c'}}>{month+1}月</div>}
                   <div>{day}</div><div style={{fontSize:7}}>{DOW[dow]}</div>
@@ -11835,7 +12007,8 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                         onMouseEnter={()=>{
                           if(!isBlocked)handleME(car.id,dateObj);
                           mvOver('loaner',car.id);                 // ★入れ替え中はこの行を移り先にする
-                          if(!pickMode&&isObj&&!mvDrag)setHoverRes({car,res:st});
+                          rsOverCell('loaner',car.id,dateObj);     // ★端をつかんで伸ばしている最中
+                          if(!pickMode&&isObj&&!mvDrag&&!rsDrag)setHoverRes({car,res:st});
                         }}
                         onMouseLeave={()=>{
                           if(!pickMode&&isObj)setHoverRes(null);
@@ -11844,7 +12017,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                           if(!pickMode&&isObj){
                             e.preventDefault();
                             e.stopPropagation();
-                            if(mvJust.current)return;               // ★入れ替えた直後は中身を出さない
+                            if(mvJust.current||rsJust.current)return; // ★入れ替え・伸ばした直後は中身を出さない
                             setPinnedRes({car,res:st});
                             setHoverRes(null);
                           }
@@ -11862,8 +12035,12 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                           position:'relative',
                           boxSizing:'border-box',
                           opacity:(mvDrag&&mvDrag.kind==='loaner'&&mvDrag.res&&isObj&&st.id===mvDrag.res.id&&car.id===mvDrag.fromCar)?.35:1,
-                          ...(mvCellStyle('loaner',car.id,dateObj)||{})
+                          ...(mvCellStyle('loaner',car.id,dateObj)||{}),
+                          ...(rsCellStyle('loaner',car.id,dateObj)||{})
                         }}>
+                        {/* ★帯の端の「つかむ所」。ここを横に引っぱると貸出期間が変わる（2026-10-30 ユーザー要望） */}
+                        {!pickMode&&isObj&&isStart&&<RsGrip kind="loaner" carId={car.id} res={st} side="start"/>}
+                        {!pickMode&&isObj&&isEnd&&<RsGrip kind="loaner" carId={car.id} res={st} side="end"/>}
                         {/* ★たった今登録した予約の目印。開始位置にだけ出す */}
                         {isJust&&showName&&(<div className="hub-just-chip">たった今</div>)}
                         {/* 貸出日数分のセルを1枠として名前を表示（開始日 or 月またぎ・前が別予約の再開始位置から。尻切れ可） */}
@@ -12145,7 +12322,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
           if(e>=s)setRDrag(p=>({...p,end:dateObj}));
         };
         // ★レンタカーもドラッグ中に端で自動スクロール（2026-10-02）
-        const rHandleDragMove=(ev)=>{ if(rDragging.current)edgeAutoScroll(rentalScrollRef.current,ev.clientX); };
+        const rHandleDragMove=(ev)=>{ if(rDragging.current||(rsDrag&&rsDrag.kind==='rental'))edgeAutoScroll(rentalScrollRef.current,ev.clientX); };
         const rHandleMU=()=>{
           stopAutoScroll();
           if(!rDragging.current||!rDrag)return;
@@ -12226,6 +12403,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                           const isConf=st==='confirm';
                           const h2=selDate&&year===selDate.getFullYear()&&month===selDate.getMonth()&&day===selDate.getDate();
                           const isStart=isObj&&st.fd===day&&st.fm===month&&st.fy===year;
+                          const isEnd=isObj&&st.td===day&&st.tm===month&&st.ty===year;
                           const bg=isDrag?'#bef264':isConf?'#93c5fd':isObj?(_rentalColors[st.id]||resColorOf(st)):h2?'#fef08a':'white';
                           const isFree=pickMode&&!isObj&&!isDrag&&!isConf;
                           const isBlocked=pickMode&&isObj;
@@ -12235,10 +12413,10 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                           return (
                             <td key={i}
                               onMouseDown={e=>{e.preventDefault();if(!isBlocked)rHandleMD(car.id,dateObj);if(isObj)mvDown('rental',car.id,st,e);}}
-                              onMouseEnter={()=>{rHandleME(car.id,dateObj);mvOver('rental',car.id);if(!pickMode&&isObj&&!mvDrag)setHoverRes({car,res:{...st,_rental:true}});}}
+                              onMouseEnter={()=>{rHandleME(car.id,dateObj);mvOver('rental',car.id);rsOverCell('rental',car.id,dateObj);if(!pickMode&&isObj&&!mvDrag&&!rsDrag)setHoverRes({car,res:{...st,_rental:true}});}}
                               onMouseLeave={()=>{if(!pickMode&&isObj)setHoverRes(null);}}
                               onClick={e=>{
-                                if(!pickMode&&isObj){e.preventDefault();e.stopPropagation();if(mvJust.current)return;setPinnedRes({car,res:{...st,_rental:true}});}
+                                if(!pickMode&&isObj){e.preventDefault();e.stopPropagation();if(mvJust.current||rsJust.current)return;setPinnedRes({car,res:{...st,_rental:true}});}
                               }}
                               style={{
                                 width:44,minWidth:44,maxWidth:44,height:40,
@@ -12248,7 +12426,11 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                                 cursor:isBlocked?'not-allowed':isFree?'crosshair':(!pickMode&&isObj?(mvDrag?'grabbing':'grab'):'default'),
                                 padding:0,overflow:(isObj&&isStart)?'visible':'hidden',position:'relative',boxSizing:'border-box',
                                 opacity:(mvDrag&&mvDrag.kind==='rental'&&mvDrag.res&&isObj&&st.id===mvDrag.res.id&&car.id===mvDrag.fromCar)?.35:1,
-                                ...(mvCellStyle('rental',car.id,dateObj)||{})}}>
+                                ...(mvCellStyle('rental',car.id,dateObj)||{}),
+                                ...(rsCellStyle('rental',car.id,dateObj)||{})}}>
+                              {/* ★帯の端の「つかむ所」。横に引っぱると貸出期間が変わる（2026-10-30 ユーザー要望） */}
+                              {!pickMode&&isObj&&isStart&&<RsGrip kind="rental" carId={car.id} res={st} side="start"/>}
+                              {!pickMode&&isObj&&isEnd&&<RsGrip kind="rental" carId={car.id} res={st} side="end"/>}
                               {isObj&&isStart&&(
                                 <div style={{position:'absolute',left:3,top:'50%',transform:'translateY(-50%)',width:rNameSpan*44-6,fontSize:11,color:'white',fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'clip',textShadow:'-1px -1px 1px rgba(0,0,0,.85),1px -1px 1px rgba(0,0,0,.85),-1px 1px 1px rgba(0,0,0,.85),1px 1px 1px rgba(0,0,0,.85),0 0 3px rgba(0,0,0,.9)',zIndex:2,pointerEvents:'none'}}>
                                   {shortenCorpName(st.user)}
@@ -15894,11 +16076,13 @@ function AppInner() {
                   cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',boxShadow:'0 2px 10px rgba(0,0,0,.22)'}}>
                 {/* ★「（別タブ）」の字は出さない（2026-10-30 ユーザー指示）。なぞると説明が出る */}
                 🏠 ダッシュボード
+                {/* ★濃い青の帯の上に出るので、ここだけ白ふちを残す（無いと帯に沈む）。
+                    色と大きさは車検カレンダーの「！」にそろえてある（2026-10-30 ユーザー指示）。*/}
                 {dashBang&&(
-                  <span data-dashbang="1" style={{position:'absolute',top:-8,right:-8,width:19,height:19,
-                    borderRadius:'50%',background:'#facc15',color:'#111',border:'2px solid white',
-                    display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:900,
-                    lineHeight:1,boxShadow:'0 1px 4px rgba(0,0,0,.35)'}}>!</span>
+                  <span data-dashbang="1" style={{position:'absolute',top:-9,right:-9,width:DASHBANG,height:DASHBANG,
+                    borderRadius:'50%',background:CALBANG_YEL,color:'#111',border:'2px solid white',
+                    display:'flex',alignItems:'center',justifyContent:'center',fontSize:Math.round(DASHBANG*0.74),
+                    fontWeight:900,lineHeight:1,paddingBottom:1,boxShadow:'0 2px 6px rgba(0,0,0,.4)'}}>!</span>
                 )}
               </button>
               <div style={{display:'flex',alignItems:'center',gap:5,position:'relative',zIndex:3}}>
@@ -16226,47 +16410,9 @@ function AppInner() {
                           <div style={{fontWeight:800,fontSize:15,marginBottom:3,color:isCl?CLOSED_FG:numCol,display:'flex',alignItems:'center',gap:3}}>
                             <span style={isToday?{flexShrink:0,...TODAY_NUM}:{flexShrink:0}}>{day}</span>
                             {isHol&&<span style={{fontSize:8,color:isCl?CLOSED_FG:'#dc2626',flexShrink:0}}>祝</span>}
-                            {/* ★日のマスの「！」（2026-10-29 ユーザー指示・A案＝日付のとなり）
-                                日のマスは 3×2 の【6コマ固定】なので、入っていても見えない予約がある。
-                                ★★【位置】と【承認】は別のもの。混ぜないこと。
-                                  ・位置 … 画面に出ないのは irows[6] 以降（並んでいる順＝配列の順）
-                                  ・承認 … 枠からあふれたかどうかは **seq（予約を入れた順）** で BLOCK-C が決める。
-                                          配列の順とは違うので、irows[6] が承認の対象とは限らない。
-                                  2026-10-29 に混ぜてしまい、10/11 が誤って黄色になった：
-                                  7台目（＝あふれた分）は みどりモータース様で承認済み、
-                                  6コマに出ていなかったのは 小畠様＝ふつうの確定予約だった。
-                                黄色＝まだ承認されていない予約がある／緑＝承認は済んでいる（どちらも黒の！）。
-                                ★6コマの見た目は変えないこと（現場が見慣れているため）。 */}
-                            {!isCl&&(()=>{
-                              const hidden=irows.slice(6);                                   // 6コマに出ていない分（位置）
-                              const pend=irows.filter(r=>r.pendingApproval);                 // まだ承認されていない分（承認）
-                              const appr=irows.filter(r=>r.approved&&!r.pendingApproval);    // あふれたが承認済みの分
-                              if(!hidden.length&&!pend.length)return null;
-                              const nmOf=r=>{const cc=COURSES.find(x=>x.id===Number(r.course));
-                                return sama(r.name)+'（'+(cc?cc.name:'コース未設定')+'）';};
-                              // ★【位置】と【承認】の両方に当てはまる人は1行にまとめる（同じ名前を2回出さない）
-                              const lines=[day+'日　'+irows.length+'台'];
-                              irows.forEach((r,i)=>{
-                                const tags=[];
-                                if(i>=6)tags.push('6コマに出ていません');
-                                if(r.pendingApproval)tags.push('⚠ まだ承認されていません');
-                                else if(r.approved)tags.push('枠からあふれた分（承認済み）');
-                                if(tags.length)lines.push('　'+nmOf(r)+'　'+tags.join('／'));
-                              });
-                              lines.push(pend.length?'承認をお願いします':(appr.length?'承認は済んでいます':'承認が要る予約はありません'));
-                              const wait=pend.length>0;
-                              return (
-                                <span data-calbang={wait?'wait':'ok'} title={lines.join(String.fromCharCode(10))}
-                                  onClick={e=>e.stopPropagation()}
-                                  style={{flexShrink:0,width:17,height:17,borderRadius:'50%',display:'inline-flex',
-                                    alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:900,color:'#111',
-                                    background:wait?'#facc15':'#22c55e',border:'2px solid #fff',
-                                    boxShadow:'0 1px 4px rgba(0,0,0,.35)',cursor:'help'}}>!</span>
-                              );
-                            })()}
                           </div>
                           {/* 休業日は6コマを描かない（営業日と見分けがつくように） */}
-                          {!isCl&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:2,position:'relative'}}>
+                          {!isCl&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:2,position:'relative',overflow:'visible'}}>
                             {icons.map(({c,si,store})=>{
                               const isLimitedSlot=si>=cellLimit;
                               return (
@@ -16287,6 +16433,51 @@ function AppInner() {
                                 最大{inspLimits[dkk]}台
                               </div>
                             )}
+                              {/* ★日のマスの「！」（2026-10-30 ユーザー指示・6枠の真ん中の真上）
+                                  日のマスは 3×2 の【6コマ固定】なので、入っていても見えない予約がある。
+                                  ★2026-10-30 に、日付のとなり（17px・白ふち）から【6枠の真ん中の真上】へ移した。
+                                    小さくて見落とすため。白ふちは外し、黄色も蛍光（#fff200）にして目立たせた。
+                                    6枠には重ねない（コマが隠れると現場が困るため）＝6枠のすぐ上に浮かせる。
+                                    この span は【6コマのグリッド（position:relative）の中】に置くこと。
+                                    日付の行に戻すと、また小さい丸に戻ってしまう。
+                                  ★★【位置】と【承認】は別のもの。混ぜないこと。
+                                    ・位置 … 画面に出ないのは irows[6] 以降（並んでいる順＝配列の順）
+                                    ・承認 … 枠からあふれたかどうかは **seq（予約を入れた順）** で BLOCK-C が決める。
+                                            配列の順とは違うので、irows[6] が承認の対象とは限らない。
+                                    2026-10-29 に混ぜてしまい、10/11 が誤って黄色になった：
+                                    7台目（＝あふれた分）は みどりモータース様で承認済み、
+                                    6コマに出ていなかったのは 小畠様＝ふつうの確定予約だった。
+                                  黄色＝まだ承認されていない予約がある／緑＝承認は済んでいる（どちらも黒の！）。
+                                  ★6コマの見た目は変えないこと（現場が見慣れているため）。 */}
+                              {(()=>{
+                                const hidden=irows.slice(6);                                   // 6コマに出ていない分（位置）
+                                const pend=irows.filter(r=>r.pendingApproval);                 // まだ承認されていない分（承認）
+                                const appr=irows.filter(r=>r.approved&&!r.pendingApproval);    // あふれたが承認済みの分
+                                if(!hidden.length&&!pend.length)return null;
+                                const nmOf=r=>{const cc=COURSES.find(x=>x.id===Number(r.course));
+                                  return sama(r.name)+'（'+(cc?cc.name:'コース未設定')+'）';};
+                                // ★【位置】と【承認】の両方に当てはまる人は1行にまとめる（同じ名前を2回出さない）
+                                const lines=[day+'日　'+irows.length+'台'];
+                                irows.forEach((r,i)=>{
+                                  const tags=[];
+                                  if(i>=6)tags.push('6コマに出ていません');
+                                  if(r.pendingApproval)tags.push('⚠ まだ承認されていません');
+                                  else if(r.approved)tags.push('枠からあふれた分（承認済み）');
+                                  if(tags.length)lines.push('　'+nmOf(r)+'　'+tags.join('／'));
+                                });
+                                lines.push(pend.length?'承認をお願いします':(appr.length?'承認は済んでいます':'承認が要る予約はありません'));
+                                const wait=pend.length>0;
+                                return (
+                                  <span data-calbang={wait?'wait':'ok'} title={lines.join(String.fromCharCode(10))}
+                                    onClick={e=>e.stopPropagation()}
+                                    style={{position:'absolute',left:'50%',top:-(CALBANG+3),transform:'translateX(-50%)',zIndex:6,
+                                      width:CALBANG,height:CALBANG,borderRadius:'50%',display:'flex',
+                                      alignItems:'center',justifyContent:'center',fontSize:Math.round(CALBANG*0.78),
+                                      fontWeight:900,color:'#111',lineHeight:1,paddingBottom:2,
+                                      background:wait?CALBANG_YEL:CALBANG_GRN,
+                                      boxShadow:'0 2px 6px rgba(0,0,0,.4)',cursor:'help'}}>!</span>
+                                );
+                              })()}
                           </div>}
                         </div>
                       );

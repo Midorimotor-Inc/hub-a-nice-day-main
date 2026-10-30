@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- fixed-holiday-1778028748861 force-deploy-1792488433732 -->
+<!-- fixed-holiday-1778028748861 force-deploy-1793327262911 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -22,7 +22,7 @@
     // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
     // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
     // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-    window.__APP_BUILD='build-1792488433732';
+    window.__APP_BUILD='build-1793327262911';
     (function(){
       var RUNNING=window.__APP_BUILD, shown=false, checking=false;
       function runningVer(){
@@ -123,7 +123,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.68';
+const APP_VERSION = '3.84.0';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -281,12 +281,14 @@ const BadgeIcon = ({badge, size=16, style={}}) => {
 };
 
 // -- デフォルトスタッフ（初回起動時のシード） --
+//   ★ここは【Firestoreの名簿（{store}-staff-v2）が空のときだけ】使う種。
+//     普段の名簿はスタッフ設定で足す・直す・外す。mobile.html の DEFAULT_STAFF と同じ中身に保つ。
 const DEFAULT_STAFF_HONTEN = [
   {uid:'h0', name:'見取勇一',     myNumber:0,  badge:'president', store:'sanda'},
   {uid:'h1', name:'見取大介',     myNumber:1,  badge:'inspector', store:'honten'},
   {uid:'h2', name:'岡上秀一',     myNumber:2,  badge:'inspector', store:'honten'},
   {uid:'h3', name:'竹林直行',     myNumber:3,  badge:'inspector', store:'honten'},
-  {uid:'h4', name:'幸田かつのり', myNumber:4,  badge:'mechanic',  store:'honten'},
+  {uid:'h4', name:'幸田桂紀',     myNumber:4,  badge:'mechanic',  store:'honten'},
   {uid:'h5', name:'魚住圭',       myNumber:5,  badge:'mechanic',  store:'honten'},
   {uid:'h6', name:'舟田祥子',     myNumber:6,  badge:'office',    store:'honten'},
   {uid:'h7', name:'江川京志',     myNumber:7,   badge:'bodywork',  store:'honten'},
@@ -296,12 +298,12 @@ const DEFAULT_STAFF_HONTEN = [
 const DEFAULT_STAFF_SANDA = [
   {uid:'s10', name:'藤原昭人',   myNumber:10, badge:'sales',     store:'sanda'},
   {uid:'s11', name:'中井啓介',   myNumber:11, badge:'sales',     store:'sanda'},
-  {uid:'s13', name:'芦田',       myNumber:12, badge:'mechanic',  store:'sanda'},
-  {uid:'s14', name:'長谷川',     myNumber:13, badge:'mechanic',  store:'sanda'},
-  {uid:'s15', name:'石井',       myNumber:14, badge:'mechanic',  store:'sanda'},
+  {uid:'s13', name:'芦田昌則',   myNumber:12, badge:'mechanic',  store:'sanda'},
+  {uid:'s14', name:'長谷川昌彦', myNumber:13, badge:'mechanic',  store:'sanda'},
+  {uid:'s15', name:'石井光',     myNumber:14, badge:'mechanic',  store:'sanda'},
   {uid:'s16', name:'両澤ちよう', myNumber:15, badge:'sales',     store:'sanda'},
   {uid:'s17', name:'野呂遥奈',   myNumber:16, badge:'sales',     store:'sanda'},
-  {uid:'s18', name:'河合',       myNumber:17, badge:'assistant', store:'sanda'},
+  {uid:'s18', name:'河合よっちゃん',myNumber:17,badge:'assistant',store:'sanda'},
 ];
 // 旧来の定数（後方互換 + 静的参照が残る箇所のフォールバック）
 const STAFF_HONTEN = DEFAULT_STAFF_HONTEN.map(s=>({id:s.myNumber,...s}));
@@ -934,10 +936,54 @@ const machPreexisting = (r, entry) => {
 
 // 納車時間の表示ラベル（入庫時間の「入庫時間未定」等とは文言を分ける）
 const deliverySlotLabel=(id)=>{const b=getBaseSlot(id);return b==='未定'?'納車時間未定':b;};
+
+// ── この予約の「受け付け」の記録（2026-10-29 ユーザー指示）──────────────
+//   rcvAt / rcvBy … 最初に受け付けた日時と、受け付けた人（v3.79.1 より前の予約には無い）
+//   moved         … 日にちを変えた記録（いつ・誰が・どの日からどの日へ）。直近5回ぶん
+//   ★予約カード（誰でも開く所）と週表のなぞり書きで、同じ言葉で出すこと。
+//   ★★【at を使わないこと】。整備の at は**マッハ車検の自動制限の特例判定**に使う別物で、
+//     保存のたびにアプリが入れ直す。日にちを変えると移り先の枠を見にいくので元の値が見つからず、
+//     受け付けの日時が勝手に「今」に置き換わる（2026-10-29 の検査で判明）。メモの at/by も別物。
+const hubAtText = (t) => {
+  const d=new Date(Number(t||0));
+  if(!t||isNaN(d.getTime()))return '';
+  const p=n=>(n<10?'0':'')+n;
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+};
+const hubDkText = (dk) => { const p=String(dk||'').split('-');
+  return (p.length===3&&p.every(x=>x!==''))?(Number(p[1])+'/'+Number(p[2])):String(dk||''); };
+const HUB_AT_NONE = '記録なし（この仕組みを入れる前の予約です）';
+const hubEntryLines = (r) => {
+  const out=[];
+  out.push('受け付け　'+((r&&r.rcvAt)?(hubAtText(r.rcvAt)+(r.rcvBy?'　'+r.rcvBy:'')):HUB_AT_NONE));
+  const mv=(r&&Array.isArray(r.moved))?r.moved:[];
+  mv.slice(-3).forEach(m=>{ if(!m)return;
+    out.push('日にち変更　'+hubDkText(m.from)+' → '+hubDkText(m.to)
+      +(m.at?('　'+hubAtText(m.at)):'')+(m.by?('　'+m.by):'')); });
+  return out;
+};
+// 日にちを変えた記録を1つ足す（直近5回ぶんだけ残す）
+const hubPushMoved = (prev,from,to,by) => {
+  const base=Array.isArray(prev)?prev.slice():[];
+  base.push({from:String(from||''),to:String(to||''),at:Date.now(),by:String(by||'')});
+  return base.slice(-5);
+};
 // 法人格（前置・後置）を落として固有名だけ返す。代車管理のセルのように幅が狭い場所だけで使う。
 // ホバー情報・編集パネル・顧客リスト等はフルネームのまま表示すること。
 // ★長い語を先に並べること（'医療法人社団' が '医療法人' より先、'一般財団法人' が '財団法人' より先）
 const CORP_TOKENS=['特定非営利活動法人','一般社団法人','一般財団法人','公益社団法人','公益財団法人','社会福祉法人','独立行政法人','医療法人社団','医療法人財団','農業協同組合','生活協同組合','有限責任事業組合','医療法人','学校法人','宗教法人','財団法人','社団法人','協同組合','株式会社','有限会社','合同会社','合資会社','合名会社','相互会社','ＮＰＯ法人','NPO法人'];
+// ── 予約のお客様のお名前は【必ず「様」を付けて出す】（2026-10-30 ユーザー指示）──────────
+//   ★★付けるのは【画面に出す時だけ】。保存する name には絶対に入れないこと。
+//     入れてしまうと、顧客リストとの突き合わせ・検索・控えのキー（氏名::日付）・
+//     代車の紐付け（res.user === row.name）が**全部ずれる**。
+//   すでに 様／さま／御中／殿 で終わっているものには足さない（二重敬称にしない）。
+const SAMA_RE=/(様|さま|サマ|御中|殿)[\s　]*$/;
+//   ★お名前と「様」のあいだは【半マス＝半角のスペース】（2026-10-30 ユーザー決定・mock_sama_space.html）。
+//     詰めると「一郎様」がひと続きに見え、一マス（全角）だと姓と名の区切りと同じ幅になって
+//     「橋口　大志朗　様」が3つの言葉に見えてしまう。半マスがちょうどよい、と見比べて決めた。
+const SAMA_GAP=' ';
+const sama=(n)=>{ const s=String(n==null?'':n).trim(); return (!s||SAMA_RE.test(s))?s:(s+SAMA_GAP+'様'); };
+
 const shortenCorpName=(name)=>{
   const orig=String(name==null?'':name).trim();
   let s=orig;
@@ -2155,7 +2201,7 @@ const toTimeStr = (v) => {
   if (!(h >= 0 && h <= 23 && mi >= 0 && mi <= 59)) return v;
   return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
 };
-const blankInsp  = () => ({name:'',staff:'',carType:'',no:'',phone:'',address:'',course:0,loaner:'',loanerId:null,rentalLabel:'',rentalCarId:null,tokuten:'-',time:'',note:'',bookingStatus:'provisional',entryDate:'',deliveryDate:'',deliveryTime:'',deliveryNote:'',noteToDelivery:false});
+const blankInsp  = () => ({name:'',user:'',staff:'',carType:'',no:'',phone:'',address:'',course:0,loaner:'',loanerId:null,rentalLabel:'',rentalCarId:null,tokuten:'-',time:'',note:'',bookingStatus:'provisional',entryDate:'',deliveryDate:'',deliveryTime:'',deliveryNote:'',noteToDelivery:false});
 
 // ── 「この保存で日付が変わったか」の判定（必ずこれを使う）──────────────
 //   モーダルは日付を触らないと _targetDk を【空文字】で返す。生の値のまま
@@ -3141,7 +3187,8 @@ const snapStamp = d => { const p = n => String(n).padStart(2, '0'); return d.get
 const SNAP_KEYS_COMMON = ['insp','insp-arch','custbk','rres','rentalcars','tiredata','rentaloc',
   'vehicles','vehicles-v2','inspLimits','mholidays','mysched','setItems','memoItems',
   'cf-index','cf-search-index','override-open','desktops-honten','desktops-sanda',
-  'notify-emails','auth-devnames','schedRestrictions','gasping','custStatus','desktops'];
+  'notify-emails','auth-devnames','schedRestrictions','gasping','custStatus','desktops',
+  'usrchk'];   // ★車検証の使用者を確認した印（2026-10-29）
 const SNAP_KEYS_STORE = ['sched','memo','lres','dayoff','pleave','offnote','cdow','cdow-v2','cdate',
   'staff-v2','cars','schedRestrictions'];
 const fbSnapKeyList = async () => {
@@ -4255,6 +4302,1072 @@ const StaffRegisterModal=memo(({isOpen,onClose,staffListH,staffListS,onSave})=>{
   );
 });
 
+// ════════════════════════════════════════════════════════════
+//  週表示（v3.69・2026-10-21 ユーザー決定）
+//   「A3の紙は1枚で1週間見える」に追いつくための画面。**1日表示はそのまま残す**。
+//   決めごと（モックで確認・2026-10-21）：
+//    ① 同じ時間に数台あっても **積んで全部出す**（たたんで隠さない）
+//    ② 車検は台数ではなく **マ→ク→レ の順にバッジ**。押せばその予約カード／右の ＋ は新規受付
+//    ③ 出勤と休みは **1行の中で左右に分ける**（B案）。休みは極薄
+//    ④ 日曜も出す　⑤ **画面のみ**（印刷は作らない）
+//   ★この画面は読むだけ。保存はすべて今までの予約カード（BookingModal）を通る。
+// ════════════════════════════════════════════════════════════
+const WEEK_DOW = ['月','火','水','木','金','土','日'];
+// ★日曜=0 の並び。週の始まりを【本日】にすると曜日は添字で決まらないので、日付から引く
+//   （2026-10-29 ユーザー指示「本日を一番左端に」）。
+const WEEK_DOW_J = ['日','月','火','水','木','金','土'];
+const weekDowOf = (d) => WEEK_DOW_J[d.getDay()];
+// 曜日の色。日曜=赤／土曜=青（カレンダーと同じ）
+const weekDowCol = (d) => d.getDay()===0?'#ef4444':d.getDay()===6?'#2563eb':'#1b2129';
+// ★予約を入れた日時（v3.78.0 から記録）。それより前の予約には記録が無いので、そう書く。
+//   ★言葉は予約カードと同じ（hubEntryLines）。別々に書くと食い違う。
+const weekAtLines = (r) => hubEntryLines(r).join(String.fromCharCode(10));
+// ── 空き探し（v3.74・2026-10-25 ユーザー決定）──────────────────────
+//  ・マッハ車検は 10:00 と 14:00 が基本の枠。空いている方をオレンジで囲い「マッハ可」、
+//    すでに入っている方は赤い札で「マッハ車検」（入庫から1時間＝2枠）
+//  ・クイック・レギュラーは枠ではなく **台数** で見る（1日6台まで／制限を掛けた日はその数、レギュラーは3台まで）
+//  ・整備は **空いている続きを丸ごと1つの枠**で囲う（1時間ずつに刻まない）。
+//    どこで取るかは使う人が決める。選んだ所要時間より短い続きは取れないので暗くする
+//  ・空いていない所は **ほぼ黒の網掛け（45%）**。押せなくはしない
+const MACH_FIND_SLOTS=['10:00','14:00'];
+const WEEK_MINS=[{m:30,label:'30分'},{m:60,label:'1時間'},{m:90,label:'1時間半'},{m:120,label:'2時間'}];
+const WEEK_DAY_LIMIT=6;     // その日に受けられる車検の台数（制限を掛けた日はその数）
+const WEEK_REG_LIMIT=3;     // レギュラー車検は1日3台まで
+const WEEK_DIM='rgba(0,0,0,.45)';
+// ★本日より前の列は うっすら暗く（15%。なし〜25% をモックで見比べて 2026-10-25 ユーザー決定）。
+//   車検・出勤・時間の枠・午前／午後入庫・時間未定まで【列ぜんぶ】に同じだけ掛ける。
+//   背景色を塗り替える書き方だと、車検の欄や 00分の帯のように background を持つセルに乗らず
+//   まだらになるので、網掛けと同じで【セルの上に重ねる】こと。
+const WEEK_PAST='rgba(0,0,0,.15)';
+// ★作業の受付は 18:00 で最後＝【最終の枠は 17:30】。18:00 からの枠は無いので、
+//   整備の空き探しでは候補にしない（常に暗い）。16:00・17:00 台は今までどおり作業する。
+//   マッハ枠と同じで、入力そのものは止めない（どうしても入れたい時は ＋ から入れられる）。
+const WEEK_NO_IN='18:00';
+// ★入庫制限の網掛けは【斜めのゼブラ】（v3.78・2026-10-25 ユーザー決定。モックで濃さと太さを確認）。
+//   ★【重要】背景1枚の大きさ（backgroundSize）を模様の繰り返し幅に固定すること。
+//     CSS の斜めグラデーションは【その箱の真ん中】を基準に描かれるので、固定しないと
+//     高さの違う枠（「マッハ車検」の札がある枠は背が高い）で模様の位相が変わり、
+//     位置をずらしても :00 と :30 の境目でズレる（2026-10-25 ユーザー指摘で発覚）。
+//   ★そのうえで、表の左上からの位置ぶんだけ背景をずらして位相をそろえる（下の useLayoutEffect）。
+//     これで枠をまたいでも列をまたいでも、1枚の紙に描いたのと同じ見え方になる。
+const ZB_W=2.5;                                 // 縞の太さ（2026-10-25 ユーザー決定。モックで6段階を見比べて 2.5px）
+const ZB_P=+(ZB_W*2*Math.SQRT2).toFixed(3);     // 模様の繰り返し幅（縦にも横にもこの幅で繰り返す）
+const ZB_IMG='repeating-linear-gradient(45deg,rgba(220,38,38,.16) 0 '+ZB_W+'px,transparent '+ZB_W+'px '+(ZB_W*2)+'px)';
+const ZB_STY={backgroundImage:ZB_IMG,backgroundSize:ZB_P+'px '+ZB_P+'px',backgroundOrigin:'border-box'};
+const WEEK_OK='#047857';     // 「マッハ可」の札。赤い「マッハ車検」と見分けるため緑（2026-10-25 ユーザー指示）
+const WEEK_TAKEN='#fecaca';  // 「マッハ予約済み」の札。ごく薄い赤（緑の「マッハ可」と見分ける）
+// ★整備で空きを探す時、マッハ車検の枠（10:00〜11:00・14:00〜15:00）は常に空けておく（本店のみ）。
+//   先に一般整備を入れてしまうとマッハ車検が入れられなくなるため（2026-10-25 ユーザー指示）。
+//   前日・当日になってまだ空いていれば、入力する人が自分の判断で入れてよい＝入力は止めない。
+//   ★札は出さない。暗くするだけ（2026-10-25 ユーザー指示）。
+const weekMinOf=(x)=>{const m=String(x||'').match(/^(\d+):(\d+)$/);return m?Number(m[1])*60+Number(m[2]):-1;};
+// 月曜はじまりの週頭
+const weekStartOf = (d) => { const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; };
+// ★週の始まりを選べるようにする（2026-10-29 ユーザー指示）。
+//   既定は【その日から7日ぶん】＝本日に開けば本日が一番左端に来て、これから1週間が全部見える。
+//   月曜はじまり（A3の紙と同じ並び）にも1押しで戻せる。
+const weekStartMode = (d, fromToday) => fromToday
+  ? new Date(d.getFullYear(),d.getMonth(),d.getDate())
+  : weekStartOf(d);
+// スタッフの1文字。**既定は名前の先頭1文字**。かぶる時・ご希望はスタッフ設定の「1文字」で手で決める。
+const staffIni = (s) => { const v=String((s&&s.ini)||'').trim(); return v?v.slice(0,2):(String((s&&s.name)||'').trim().slice(0,1)||'?'); };
+const courseOrd = (c) => { const i=COURSES.findIndex(x=>x.id===c); return i<0?9:i; };
+
+const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFromToday,storeId,storeName,headColor,
+    inspData,schedData,staffList,dayOffData,paidLeaveData,isClosed,restrictionOf,inspLimits,
+    onOpenInsp,onAddInsp,onAddMach,onOpenSched,onAddSched,onPickDay})=>{
+  // ★フックは「早い return」より前に置くこと（React の決まり。後ろに置くと数が合わず画面が落ちる）
+  // 据え置きの表（午後入庫・時間未定）は別の表なので、上の表にスクロールバーが出ると
+  // その幅のぶんだけ列がズレる（2026-10-24 ユーザー報告「10/24 はズレて見える」）。
+  // → 上の表のスクロールバーの幅を測って、下の表に同じだけ余白を入れる。
+  const scRef=useRef(null);
+  const [sbw,setSbw]=useState(0);
+  // 内容の吹き出し（1日表示の NoteCell と同じ見た目で出す）
+  const [tip,setTip]=useState(null);
+  // ★① 時間を畳む（2026-10-29 ユーザー指示・マイスケジュールと同じ考え方）。
+  //   1週間のどこにも予定が無い時間の行を隠す。車検・出勤・午前入庫の行は隠さない。
+  //   ★開いた時はいつも【畳んだ状態】から（2026-10-30 ユーザー指示）。
+  //     広げたまま閉じても、次に開く時はまた畳んである。
+  const [folded,setFolded]=useState(true);
+  useEffect(()=>{ if(isOpen)setFolded(true); },[isOpen]);
+  // 最大化（ブラウザの全画面）と空き探し
+  const fsRef=useRef(null);
+  const [isFs,setIsFs]=useState(false);
+  const [find,setFind]=useState({open:false,kind:'insp',course:1,mins:30,run:false});
+  useEffect(()=>{const h=()=>{try{setIsFs(!!document.fullscreenElement);}catch(e){}};
+    document.addEventListener('fullscreenchange',h);return()=>document.removeEventListener('fullscreenchange',h);},[]);
+  // ★週を送っても探した条件はそのまま（新しい週で計算し直す）。2026-10-25 ユーザー指示
+  useEffect(()=>{ setFind(p=>({...p,run:false})); },[storeId]);
+  useEffect(()=>{ if(!isOpen) setFind(p=>({...p,open:false,run:false})); },[isOpen]);
+  useLayoutEffect(()=>{
+    if(!isOpen)return;
+    const el=scRef.current; if(!el)return;
+    const measure=()=>setSbw(Math.max(0,el.offsetWidth-el.clientWidth));
+    measure();
+    let ro=null;
+    try{ ro=new ResizeObserver(measure); ro.observe(el); }catch(e){}
+    window.addEventListener('resize',measure);
+    return()=>{ try{ro&&ro.disconnect(); }catch(e){} window.removeEventListener('resize',measure); };
+  },[isOpen,weekStart,storeId]);
+  // ★入庫制限の斜めゼブラ：枠の境目で模様がズレないよう、表の左上からの位置ぶんだけ背景をずらす。
+  //   （背景1枚の大きさは ZB_STY で固定済み＝どの枠でも同じ位相になっている）
+  //   依存を書かない＝描き直すたびに測り直す。スクロールでは表ごと動くので測り直しは要らない。
+  useLayoutEffect(()=>{
+    const root=fsRef.current; if(!root)return;
+    const tb=root.querySelector('table'); if(!tb)return;
+    const base=tb.getBoundingClientRect();
+    const mod=(v)=>(((v%ZB_P)+ZB_P)%ZB_P);
+    root.querySelectorAll('[data-wzb="1"]').forEach(td=>{
+      const r=td.getBoundingClientRect();
+      td.style.backgroundPosition=(-mod(r.left-base.left)).toFixed(2)+'px '+(-mod(r.top-base.top)).toFixed(2)+'px';
+    });
+  });
+  if(!isOpen||!weekStart)return null;
+  const days=Array.from({length:7},(_,i)=>new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+i));
+  const nowD=new Date();
+  const todayDk=dateKey(nowD.getFullYear(),nowD.getMonth(),nowD.getDate());
+  const dkOf=(d)=>dateKey(d.getFullYear(),d.getMonth(),d.getDate());
+  // ★本日より前の日（本日は含めない＝オレンジの太枠で目立たせているため）
+  const todayT=new Date(nowD.getFullYear(),nowD.getMonth(),nowD.getDate()).getTime();
+  const pastDk={}; days.forEach(d=>{if(d.getTime()<todayT)pastDk[dkOf(d)]=true;});
+  const isPast=(dk)=>!!pastDk[dk];
+  const mine=(r)=>!!r&&(r.store===storeId||(r.store==null&&storeId==='honten'));
+  // 車検：コース順（マ→ク→レ）、同じコースなら入庫の早い順
+  // ★車検は【両店あわせて】出す（2026-10-25 ユーザー指示）。insp は両店が1本に入っていて
+  //   台数制限（inspLimits）も両店共通なので、見ている店だけに絞ると台数が合わない。
+  //   他店の予約はバッジに白いふちを付けて見分ける（mine で判定）。
+  const inspOf=(dk)=>(inspData[dk]||[]).map((r,i)=>({r,i}))
+    .filter(x=>x.r&&x.r.name&&x.r.bookingStatus!=='cancelled')
+    .sort((a,b)=>{const c=courseOrd(a.r.course)-courseOrd(b.r.course);if(c)return c;
+      return String(a.r.time||'~~').localeCompare(String(b.r.time||'~~'));});
+  // 新しい車検を入れる行＝空いている最初の行（詰めない。代車の紐付けを壊さないため）
+  const nextInspIdx=(dk)=>{const rows=inspData[dk]||[];
+    for(let i=0;i<rows.length;i++){const r=rows[i];if(!r||!r.name||r.bookingStatus==='cancelled')return i;}
+    return rows.length;};
+  // 整備：同じ枠の 09:00 / 09:00__1 / 09:00__2 … を全部出す
+  const slotEntries=(dk,slot)=>{const day=schedData[dk]||{};
+    return [slot].concat(Object.keys(day).filter(k=>k.indexOf(slot+'__')===0).sort())
+      .map(k=>({k,r:day[k]})).filter(x=>x.r&&x.r.name);};
+  const nextSlotKey=(dk,slot)=>{const day=schedData[dk]||{};let n=0;
+    while(day[makeSlotKey(slot,n)]&&day[makeSlotKey(slot,n)].name)n++;return makeSlotKey(slot,n);};
+  // ★日割りの縦線は【ダークグレー】（2026-10-30 ユーザー決定・mock_week_lines.html で5色から選んだ）。
+  //   うすい線だと「どの日の列か」を目で追えなかった。罫線はこの1つで決めること。
+  const WLINE='#64748b';
+  const TH={padding:'5px 4px',fontSize:11,fontWeight:800,whiteSpace:'nowrap',border:'1px solid '+WLINE,
+    background:'#f1f5f9',position:'sticky',top:0,zIndex:4};
+  const TD={border:'1px solid '+WLINE,padding:'1px 3px',fontSize:11.5,verticalAlign:'middle',height:26};
+  const TM={border:'1px solid '+WLINE,width:54,minWidth:54,background:'#f8fafc',fontSize:11,fontWeight:800,
+    color:'#475569',textAlign:'center',whiteSpace:'nowrap'};
+  const SB={display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:17,height:17,padding:'0 2px',
+    borderRadius:4,background:'#475569',color:'white',fontSize:10,fontWeight:900,margin:1,verticalAlign:'middle'};
+  const SB_OFF={...SB,background:'white',color:'#e6ebf1',border:'1px solid #f1f5f9',fontWeight:700};
+  // ★車検のバッジは2段ずつ積み、コースが変わったら列を変える（2026-10-23 ユーザー指示）
+  //   マ3台なら「マ／マ」の列＋「マ／空き」の列 → ひとつ空けて ク → その横に レ。混ざらない。
+  const INS_GRP={display:'flex',gap:10,alignItems:'flex-start',justifyContent:'center',flexWrap:'wrap',padding:'1px 0'};
+  const INS_COL={display:'grid',gridTemplateRows:'repeat(2,19px)',gridAutoFlow:'column',gap:2};
+  const CB={display:'inline-flex',alignItems:'center',justifyContent:'center',width:19,height:19,borderRadius:5,
+    color:'white',fontSize:11,fontWeight:900,border:'none',cursor:'pointer',fontFamily:'inherit'};
+  // ★30分ごとの帯（2026-10-23 ユーザー指示）：:00 の行は水色、:30 の行は白
+  const BAND_BG='#e6f6fb', BAND_TM='#cfeef7';
+  // ★入庫制限の色（2026-10-24 ユーザー決定）：**1日表示と同じ ベタの薄いピンク**。
+  //   はじめ斜線のゼブラにしたが、:00 と :30 で1時間続く時に**行の境目で模様がズレて見えた**
+  //   （セルごとに模様が左上から描き直されるため）。ベタ塗りならズレようがない。
+  //   **斜線・網掛けに戻さないこと。** 入力そのものは今までどおりできる（通るかは保存時に見る）。
+  const RESTR_BG='#fee2e2';      // 車検の台数制限（いっぱいの日）はベタのまま
+  const RESTR_BASE='#fff5f5';    // 入庫制限のセルの下地。この上に斜めゼブラを重ねる
+  // ★出勤の欄とスケジュールの欄の境目（2026-10-24 ユーザー指示・イ案）。
+  //   ふつうの細い線だと、出勤の行とその下の時間の行の見分けが付かなかった。
+  const STAFF_UNDER='4px double #334155';
+  // ★時刻を持たない枠（午前入庫・午後入庫・時間未定）の色（2026-10-24 ユーザー指示・B案）。
+  //   薄紫をやめて**緑地に白文字**。中の枠はうっすら緑。
+  const SP_TM={background:'#047857',color:'white'};
+  const SP_CELL='#f0fdf4';
+  // 時刻を持たない枠の呼び名（画面の言葉。「入庫未定」→「時間未定」に変更）
+  const spName=(x)=>x==='未定'?'時間未定':x==='午前'?'午前入庫':x==='午後'?'午後入庫':x;
+  // ★本日の列は太枠で囲む（2026-10-24 ユーザー指示・ア案）。色はカレンダーの「今日」と同じ
+  // ★線を濃くすると本日の枠が埋もれるので、【太さ5px・明るいオレンジ】で浮かせる
+  //   （2026-10-30 ユーザー決定。太さ4種・明るさ5種を見比べて決めた）
+  const TODAY_LINE='#fb923c';
+  const TODAY_W='5px';
+  // ★見出しの右端の四角いボタン（⛶ と ✕ で共用。大きさを必ず揃える・2026-10-30 ユーザー指示）
+  const WHDR_SQ={width:32,height:26,padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',
+    background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+    fontSize:13,fontWeight:900,color:'white',cursor:'pointer',fontFamily:'inherit',lineHeight:1,flexShrink:0};
+  const todayCol=(dk)=>dk===todayDk?{borderLeft:TODAY_W+' solid '+TODAY_LINE,borderRight:TODAY_W+' solid '+TODAY_LINE}:{};
+  // ★時刻を持たない枠の置き方（2026-10-23 ユーザー指示）
+  //   ・12:00 の枠はやめる（ほとんど入らない）。**その場所に「午前」を置く**（午前の入庫＝お昼までに入る分）
+  //   ・「午後」「入庫未定」は**スクロールする表の外**に出し、画面の下に据え置く（入庫未定がいちばん下）
+  //     ★以前は sticky で貼り付けていたが、スクロールした時に上の予定の字が重なって読めなくなった。
+  //       表そのものを分けてしまえば重なりようがない。**sticky に戻さないこと。**
+  //   ★1日表示の並び（SCHED_SLOTS）は変えないこと。週表の中だけの並べ替え。
+  const WEEK_PIN=['午後','未定'];                 // 下に据え置く分（この順に上から）
+  const WEEK_DROP=['12:00'];                      // 週表では出さない枠
+  const mainSlots=(()=>{const o=[];
+    SCHED_SLOTS.forEach(x=>{
+      if(WEEK_PIN.indexOf(x)>=0||x==='午前')return;   // 下に据え置く分と、場所を移す午前は飛ばす
+      if(WEEK_DROP.indexOf(x)>=0){o.push('午前');return;}   // 12:00 のあった所に午前を入れる
+      o.push(x);});
+    return o;})();
+  // ★畳んだ時に出す枠を決める（2026-10-30 ユーザー指示）。
+  //   「1週間のどこにも予定が入っていない枠」は隠す。**午前入庫・午後入庫・時間未定も同じ扱い**
+  //   （以前は時刻を持たない3つだけ必ず出していたが、空のまま場所を取るのでやめた）。
+  //   ・空き探しの印（blk）が付いた枠は隠さない＝探した結果が消えてしまうため
+  //   ・入れる場所は、畳んだ表のいちばん下の「＋ 予定」から（カードの中で時間を選べる）
+  const slotHasAny=(slot)=>days.some(d=>{const dk=dkOf(d);
+    if(isClosed(d))return false;
+    if(slotEntries(dk,slot).length)return true;
+    const b=srCell(dk,slot); return !!(b&&b.blk);});
+  // ★18:00 はほとんど入らないので細く（12:00 は枠ごとやめた）
+  const THIN=['18:00'];
+  // ★探した結果。dayDim＝その日まるごと暗く／dayLab＝車検の欄に出す札／cell＝枠ごとの印
+  const weekTimes=mainSlots.filter(x=>!isSpecialSlot(x));
+  const sr=find.run?(()=>{
+    const dayDim={},dayLab={},cell={};
+    days.forEach(d=>{
+      const dk=dkOf(d);
+      if(isClosed(d)){dayDim[dk]=true;return;}
+      if(find.kind==='insp'){
+        const rows=inspOf(dk);
+        // ★台数制限がいちばん強い（2026-10-25 ユーザー指示）。制限を掛けた日で上限に達していたら
+        //   コースに関係なく受けられない（11/2・11/3 のような「0台」の日もここで止まる）。
+        const dayLim=(inspLimits||{})[dk];
+        if(dayLim!=null&&rows.length>=dayLim){dayDim[dk]=true;return;}
+        if(find.course===1){
+          const taken=rows.filter(x=>Number(x.r.course)===1).map(x=>getBaseSlot(x.r.time||''));
+          const free=MACH_FIND_SLOTS.filter(t=>taken.indexOf(t)<0);
+          if(!free.length){dayDim[dk]=true;return;}
+          dayLab[dk]=free.join('・')+' 空き';
+          MACH_FIND_SLOTS.forEach(t=>{
+            const ix=weekTimes.indexOf(t); if(ix<0)return;
+            const pair=[weekTimes[ix],weekTimes[ix+1]].filter(Boolean);
+            const isFree=free.indexOf(t)>=0;
+            pair.forEach((sl,k)=>{
+              const key=dk+'|'+sl, o=cell[key]||(cell[key]={});
+              if(isFree){o.blk=true;o.top=(k===0);o.bot=(k===pair.length-1);}
+              if(k===0){o.lab=isFree?'マッハ可':'マッハ予約済み';o.labKind=isFree?'ok':'mach';}
+            });
+          });
+        }else{
+          let rest=(dayLim!=null?dayLim:WEEK_DAY_LIMIT)-rows.length;
+          if(find.course===3)rest=Math.min(rest,WEEK_REG_LIMIT-rows.filter(x=>Number(x.r.course)===3).length);
+          if(rest<=0){dayDim[dk]=true;return;}
+          dayLab[dk]='あと'+rest+'台';
+        }
+      }else{
+        const need=Math.ceil(find.mins/30);
+        const rs=restrictionOf?restrictionOf(dk):null;
+        // ★マッハ車検の枠は整備の空きに数えない（本店のみ・2026-10-25 ユーザー指示）
+        const hold={};
+        // ★18:00 からの枠は無い（作業の受付は 18:00 が最後＝最終の枠は 17:30。2026-10-25 ユーザー指示）
+        const noInMin=weekMinOf(WEEK_NO_IN);
+        weekTimes.forEach(sl=>{const m=weekMinOf(sl); if(m>=0&&m>=noInMin)hold[sl]=true;});
+        if(storeId==='honten')MACH_FIND_SLOTS.forEach(t=>{
+          const ix=weekTimes.indexOf(t); if(ix<0)return;
+          [weekTimes[ix],weekTimes[ix+1]].filter(Boolean).forEach(sl=>{hold[sl]=true;});
+        });
+        const freeAt=(sl)=>!hold[sl]&&slotEntries(dk,sl).length===0&&!restrCovers(rs,sl);
+        let i=0;
+        while(i<weekTimes.length){
+          if(!freeAt(weekTimes[i])){i++;continue;}
+          let run=i;
+          while(run+1<weekTimes.length&&freeAt(weekTimes[run+1])
+            &&weekMinOf(weekTimes[run+1])-weekMinOf(weekTimes[run])===30) run++;
+          if(run-i+1>=need){
+            for(let k=i;k<=run;k++){const key=dk+'|'+weekTimes[k],o=cell[key]||(cell[key]={});
+              o.blk=true;o.top=(k===i);o.bot=(k===run);}
+          }
+          i=run+1;
+        }
+      }
+    });
+    return {dayDim,dayLab,cell};
+  })():null;
+  const srCell=(dk,slot)=>sr?(sr.cell[dk+'|'+slot]||null):null;
+  // 暗くする覆い（文字の上に重ねる）
+  const DimOv=()=><span style={{position:'absolute',inset:0,background:WEEK_DIM,pointerEvents:'none',zIndex:3}}/>;
+  // 本日より前。網掛けより下（zIndex 2）に敷く＝探した時の網掛けと重なっても濁らない
+  const PastOv=({dk})=>isPast(dk)?<span data-wpast="1" style={{position:'absolute',inset:0,
+    background:WEEK_PAST,pointerEvents:'none',zIndex:2}}/>:null;
+  const BLK={borderLeft:'2px solid #f59e0b',borderRight:'2px solid #f59e0b',background:'#fffbe6'};
+  // 札は枠のど真ん中。「マッハ可」＝緑＋＋ボタン／「マッハ車検」＝薄い赤（2026-10-25 ユーザー指示）
+  const LABW={position:'absolute',left:'50%',top:'100%',transform:'translate(-50%,-50%)',zIndex:4,
+    display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'};
+  const LAB=(kind)=>({fontSize:11,fontWeight:900,whiteSpace:'nowrap',padding:'1px 8px',borderRadius:9,
+    color:kind==='ok'?'white':'#991b1b',
+    background:kind==='ok'?WEEK_OK:WEEK_TAKEN,
+    border:'1px solid '+(kind==='ok'?WEEK_OK:'#fca5a5')});
+  const LABADD={display:'inline-flex',alignItems:'center',justifyContent:'center',width:19,height:19,
+    borderRadius:'50%',border:'1.5px dashed #fb923c',background:'white',color:'#c2410c',padding:0,
+    fontSize:12,fontWeight:900,lineHeight:1,cursor:'pointer',fontFamily:'inherit'};
+  const isHourSlot=(x)=>/:00$/.test(String(x||''));
+  // コースごとのかたまりに分ける（並びは既に マ→ク→レ の順）
+  const inspGroups=(rows)=>{const g=[];rows.forEach(x=>{const last=g[g.length-1];
+    if(last&&last.cid===x.r.course)last.items.push(x);else g.push({cid:x.r.course,items:[x]});});return g;};
+  // 1つの時間の行。表の中でも、下に据え置く表でも同じものを使う
+  const slotRow=(slot,last)=>{
+    const sp=isSpecialSlot(slot);
+    // ★空き探しの印（2026-10-25）。dayDim＝その日まるごと／blk＝明るい枠／lab＝真ん中の札
+    // 整備は「囲いに入っていない枠」を暗くする（マッハ枠のように札だけ出す枠も暗いまま）
+    const sDim=(dk)=>{const b=srCell(dk,slot);
+      return !!(sr&&(sr.dayDim[dk]||(find.kind==='sched'&&!(b&&b.blk))));};
+    const sBlk=(dk)=>{const b=srCell(dk,slot);
+      return (b&&b.blk)?{...BLK,...(b.top?{borderTop:'2px solid #f59e0b'}:{}),...(b.bot?{borderBottom:'2px solid #f59e0b'}:{})}:{};};
+    const sLab=(dk)=>{const b=srCell(dk,slot);
+      if(!b||!b.lab)return null;
+      // ★空いている時は札の隣に ＋。押すとこの日・この時間でマッハ車検の予約カードが開く
+      //   （ここはタイムスケジュール＝一般整備の枠だが、車検として受ける。2026-10-25 ユーザー指示）
+      return <span style={LABW}>
+        <span style={LAB(b.labKind)}>{b.lab}</span>
+        {b.labKind==='ok'&&<button data-wmachadd={dk+'/'+slot} title={'この日の '+slot+' でマッハ車検を受ける'}
+          onClick={e=>{e.stopPropagation();onAddMach(dk,nextInspIdx(dk),slot);}} style={LABADD}>＋</button>}
+      </span>;};
+    const thin=THIN.indexOf(slot)>=0;
+    const pinned=WEEK_PIN.indexOf(slot)>=0;
+    // ★30分ごとの帯。午前・未定・午後は時刻を持たない枠なので薄紫
+    const h0=!sp&&isHourSlot(slot);
+    const cellBand=h0?{background:BAND_BG}:{};
+    // 本日の列。いちばん下の行だけ枠の底も閉じる
+    const tcol=(dk)=>({...todayCol(dk),...(last&&dk===todayDk?{borderBottom:TODAY_W+' solid '+TODAY_LINE}:{})});
+    return <tr key={slot} data-wband={h0?'1':'0'} data-wpin={pinned?'1':'0'} data-wthin={thin?'1':'0'}>
+      <td style={{...TM,...(thin?{height:15,fontSize:10}:{}),...(sp?SP_TM:h0?{background:BAND_TM,color:'#0e5a6b'}:{})}}>
+        {spName(slot)}</td>
+      {days.map(d=>{const dk=dkOf(d);
+        if(isClosed(d))return <td key={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,...(thin?{height:15}:{}),...tcol(dk),
+          position:'relative'}}><PastOv dk={dk}/>{sDim(dk)&&<DimOv/>}</td>;
+        // ★入庫制限（手で入れた分＋マッハ車検の自動分）。必ず restrCovers を通して見る
+        const rs=restrictionOf?restrictionOf(dk):null;
+        const rst=!sp&&restrCovers(rs,slot);
+        const mach=rst?machCovering(rs,slot):null;
+        const rsTip=rst?('入庫制限'+(mach?'（マッハ車検）':'')+'　'+restrLabels(rs).join('／')
+          +(restrExempt(rs).length?'　通せる作業：'+restrExempt(rs).join('・'):'')):undefined;
+        const cellSty={...(rst?{background:RESTR_BASE,...ZB_STY}:cellBand),...(thin?{height:15}:{}),
+          ...(sp?{background:SP_CELL}:{})};
+        const list=slotEntries(dk,slot);
+        if(list.length===0)return <td key={dk} data-wadd={dk+'/'+slot} data-wrcell={rst?'1':'0'} data-wzb={rst?'1':'0'} data-wdim={sDim(dk)?'1':'0'} title={rsTip}
+          onClick={()=>onAddSched(dk,nextSlotKey(dk,slot))}
+          style={{...TD,...cellSty,...tcol(dk),...sBlk(dk),position:'relative',
+            color:rst?'#fca5a5':'#cbd5e1',textAlign:'center',fontSize:11,cursor:'pointer'}}
+          onMouseEnter={e=>{if(!rst&&!sr){e.currentTarget.style.background='#ecfeff';e.currentTarget.style.color='#0891b2';}}}
+          onMouseLeave={e=>{if(!rst&&!sr){e.currentTarget.style.background=cellSty.background||'';e.currentTarget.style.color='#cbd5e1';}}}>
+          ＋<PastOv dk={dk}/>{sLab(dk)}{sDim(dk)&&<DimOv/>}</td>;
+        return <td key={dk} data-wrcell={rst?'1':'0'} data-wzb={rst?'1':'0'} data-wdim={sDim(dk)?'1':'0'} title={rsTip}
+          style={{...TD,...cellSty,...tcol(dk),...sBlk(dk),position:'relative'}}>
+          <PastOv dk={dk}/>{sLab(dk)}{sDim(dk)&&<DimOv/>}
+          {list.map(({k,r},ri)=>(
+            <div key={k} data-went={dk+'/'+k} onClick={()=>onOpenSched(dk,k)}
+              style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',overflow:'hidden',cursor:'pointer',
+                ...(ri>0?{marginTop:2,paddingTop:2,borderTop:'1px dotted #e2e8f0'}:{})}}>
+              <span title={(WORKS.find(w=>w.id===r.work)||{}).name||''}
+                style={{flexShrink:0,fontSize:9.5,fontWeight:900,color:'white',borderRadius:3,padding:'0 4px',
+                  lineHeight:'15px',background:WORK_COLORS[r.work]||'#64748b'}}>{r.work||'—'}</span>
+              {/* ★④ なぞると「いつ・誰が予約を入れたか」（2026-10-29 ユーザー指示）。
+                  週表には担当者のバッジが無い（2026-10-23 に内容を出すため外した）ので、お名前をなぞる。 */}
+              <span data-wentnm="1"
+                onMouseEnter={e=>{try{const b=e.currentTarget.getBoundingClientRect();
+                  setTip({head:'🕘 この予約の受け付け',
+                    text:sama(r.name)+String.fromCharCode(10)+weekAtLines(r),
+                    left:b.left,top:b.top,bottom:b.bottom});}catch(x){}}}
+                onMouseLeave={()=>setTip(null)}
+                style={{fontWeight:700,color:'#1e293b',flexShrink:0,cursor:'help'}}>{sama(r.name)}</span>
+              {r.loaner&&<span style={{flexShrink:0,fontSize:9.5,color:'#0f766e',background:'#ccfbf1',borderRadius:3,padding:'0 3px'}}>代{String(r.loaner).replace(/🔑/g,'').trim().split(/[  (（]/)[0]}</span>}
+              {/* ★担当者バッジは外し、代わりに内容を入る幅だけ出す（2026-10-23 ユーザー指示）。
+                  切れたら … 。全文はなぞると出る（1日表示と同じ考え方） */}
+              {/* ★なぞると全文（2026-10-24 ユーザー指示：**1日表示（NoteCell）と同じ角丸の吹き出し**にする。
+                  ブラウザの素の吹き出しは四角くて素っ気ないため） */}
+              {r.content&&<span data-wct="1"
+                onMouseEnter={e=>{try{const b=e.currentTarget.getBoundingClientRect();
+                  setTip({text:String(r.content),left:b.left,top:b.top,bottom:b.bottom});}catch(x){}}}
+                onMouseLeave={()=>setTip(null)}
+                style={{color:'#475569',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:1}}>
+                {String(r.content).replace(/[\r\n]+/g,'　')}</span>}
+            </div>
+          ))}
+        </td>;})}
+    </tr>;
+  };
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:900,display:'flex',
+      alignItems:'center',justifyContent:'center',padding:0}} onClick={onClose}>
+      <div ref={fsRef} onClick={e=>e.stopPropagation()} data-weekview="1"
+        style={{background:'white',borderRadius:isFs?0:12,width:isFs?'100vw':'99.5vw',height:isFs?'100vh':'98.5vh',display:'flex',
+          flexDirection:'column',overflow:'hidden',boxShadow:'0 30px 80px rgba(0,0,0,.45)'}}>
+        {/* 見出し＋週送り */}
+        <div style={{flexShrink:0,display:'flex',alignItems:'center',gap:10,padding:'6px 12px',
+          background:headColor||'linear-gradient(135deg,#0e7490,#0891b2)',color:'white'}}>
+          {/* 左：見出し */}
+          <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:9,overflow:'hidden'}}>
+            <b style={{fontSize:15,fontWeight:800,whiteSpace:'nowrap'}}>⏰ タイムスケジュール（週）</b>
+            <span style={{fontSize:12.5,opacity:.95,whiteSpace:'nowrap'}}>{storeName}</span>
+            <span style={{fontSize:13,fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {(days[0].getMonth()+1)+'/'+days[0].getDate()+'（'+weekDowOf(days[0])+'） 〜 '+(days[6].getMonth()+1)+'/'+days[6].getDate()+'（'+weekDowOf(days[6])+'）'}
+            </span>
+          </div>
+          {/* ★中：週送り。真ん中に、大きく（2026-10-23 ユーザー指示）。
+              🔍 空き検索は「次の週」の隣に置くが、週送りの3つは真ん中のままにしたいので、
+              左に【見えない同じ大きさの控え】を入れて釣り合いを取る（2026-10-25 ユーザー指示） */}
+          <div style={{flexShrink:0,display:'flex',gap:9,alignItems:'center'}}>
+            <button aria-hidden="true" tabIndex={-1} data-wfindghost="1"
+              style={{visibility:'hidden',pointerEvents:'none',marginLeft:5,
+                border:'2px solid transparent',borderRadius:10,padding:'8px 20px',fontSize:15,fontWeight:800,
+                fontFamily:'inherit',whiteSpace:'nowrap'}}>🔍 空き検索</button>
+            {/* ★真ん中は「今週」ではなく【本日へ】（2026-10-29 ユーザー決定）。
+                本日が一番左端なので、右半分は来週になる＝「今週」では言葉が合わない。 */}
+            {[['‹ 前の週',-1],['本日へ',0],['次の週 ›',1]].map(([t,v])=>(
+              <button key={t} onClick={()=>onWeek(v)} data-wnav={String(v)}
+                style={{background:v===0?'rgba(255,255,255,.95)':'rgba(255,255,255,.22)',
+                  border:'2px solid rgba(255,255,255,.75)',borderRadius:10,
+                  padding:'8px 22px',fontSize:15,fontWeight:800,
+                  color:v===0?'#0e5a6b':'white',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>{t}</button>
+            ))}
+            {/* ★🔍 空き検索は「次の週」の隣（真ん中寄り）に置く。2026-10-25 ユーザー指示。札の名前は 2026-10-26 に「空き検索」へ */}
+            <button data-wfind="1" title="空いている所を探す" onClick={()=>setFind(p=>({...p,open:!p.open}))}
+              style={{background:'#E8492E',marginLeft:5,
+                border:(find.open?'2px solid white':'2px solid rgba(255,255,255,.75)'),borderRadius:10,
+                padding:'8px 20px',fontSize:15,fontWeight:800,
+                color:'white',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>🔍 空き検索</button>
+          </div>
+          {/* 右：⛶ 最大化／✕ */}
+          <div style={{flex:1,display:'flex',justifyContent:'flex-end',gap:7,alignItems:'center'}}>
+            {/* ★① 時間を畳む（2026-10-29 ユーザー指示）。1週間のどこにも予定が無い時間の行を隠す */}
+            <button data-wfold={folded?'1':'0'} onClick={()=>setFolded(v=>!v)}
+              title={folded?'隠した時間の行をまた出す':'1週間のどこにも予定が無い時間の行を隠す'}
+              style={{background:folded?'white':'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+                padding:'4px 11px',fontSize:13,fontWeight:900,color:folded?'#0e5a6b':'white',cursor:'pointer',
+                fontFamily:'inherit',whiteSpace:'nowrap'}}>{folded?'▼ 開く':'▲ 畳む'}</button>
+            {/* ★② 週の始まり（2026-10-29 ユーザー指示）。既定は本日から＝本日が一番左端 */}
+            <button data-wfrom={fromToday?'today':'mon'} onClick={()=>onFromToday&&onFromToday(!fromToday)}
+              title={fromToday?'月曜はじまり（A3の紙と同じ並び）に切り替える':'本日を一番左端にして、そこから7日ぶんを出す'}
+              style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+                padding:'4px 11px',fontSize:13,fontWeight:900,color:'white',cursor:'pointer',
+                fontFamily:'inherit',whiteSpace:'nowrap'}}>{fromToday?'📍 本日から':'📅 月曜から'}</button>
+            {/* ★最大化／戻すは【印だけ】。✕ とまったく同じ大きさ（2026-10-30 ユーザー指示）。
+                どちらの状態かは印そのものが変わる（広げる⇔縮める）。言葉は「なぞると出る説明」に残す。
+                ★字を戻さないこと。 */}
+            <button data-wfs="1" title={isFs?'元の大きさに戻す':'画面いっぱいに広げる'}
+              onClick={()=>{try{ if(document.fullscreenElement){document.exitFullscreen&&document.exitFullscreen();}
+                else if(fsRef.current&&fsRef.current.requestFullscreen){fsRef.current.requestFullscreen();} }catch(e){}}}
+              style={{...WHDR_SQ}}>{isFs?<Shrink size={15}/>:<Expand size={15}/>}</button>
+            <button data-wclose="1" onClick={onClose} title="閉じる" style={{...WHDR_SQ}}>✕</button>
+          </div>
+        </div>
+        {/* ★空き探しの帯（2026-10-25 ユーザー指示） */}
+        {find.open&&(()=>{
+          const seg=(on)=>({padding:'6px 14px',border:'none',background:on?'#1d4ed8':'white',
+            color:on?'white':'#475569',fontSize:12.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'});
+          const segG=(on)=>({...seg(on),background:on?'#047857':'white',color:on?'white':'#475569'});
+          const box={display:'inline-flex',border:'2px solid #cbd5e1',borderRadius:9,overflow:'hidden'};
+          const n=sr?Object.keys(sr.dayLab).length:0;
+          const blk=sr?Object.keys(sr.cell).filter(k=>sr.cell[k].top).length:0;
+          const mn=(WEEK_MINS.find(x=>x.m===find.mins)||{}).label||'';
+          return (
+            <div data-wfindbar="1" style={{flexShrink:0,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',
+              padding:'9px 12px',background:'#fff7ed',borderBottom:'2px solid #fed7aa'}}>
+              <b style={{fontSize:12.5}}>空きを探す</b>
+              <span style={box}>
+                <button data-wkind="insp" onClick={()=>setFind(p=>({...p,kind:'insp',run:false}))} style={seg(find.kind==='insp')}>🚗 車検</button>
+                <button data-wkind="sched" onClick={()=>setFind(p=>({...p,kind:'sched',run:false}))} style={seg(find.kind==='sched')}>⏰ 整備</button>
+              </span>
+              {find.kind==='insp'?(
+                <React.Fragment>
+                  <b style={{fontSize:12.5}}>コース</b>
+                  <span style={box}>
+                    {COURSES.map(c=>(
+                      <button key={c.id} data-wcourse={c.id} onClick={()=>setFind(p=>({...p,course:c.id,run:false}))}
+                        style={seg(find.course===c.id)}>{c.name}</button>
+                    ))}
+                  </span>
+                  <span style={{fontSize:11.5,color:'#9a3412'}}>
+                    {find.course===1?'マッハは 10:00 と 14:00 の枠で見ます'
+                      :find.course===3?'レギュラーは台数で見ます（1日3台まで）'
+                      :'クイックは台数で見ます（1日6台まで／制限を掛けた日はその数）'}</span>
+                </React.Fragment>
+              ):(
+                <React.Fragment>
+                  <b style={{fontSize:12.5}}>作業の所要時間</b>
+                  <span style={box}>
+                    {WEEK_MINS.map(x=>(
+                      <button key={x.m} data-wmin={x.m} onClick={()=>setFind(p=>({...p,mins:x.m,run:false}))}
+                        style={segG(find.mins===x.m)}>{x.label}</button>
+                    ))}
+                  </span>
+                </React.Fragment>
+              )}
+              <button data-wgo="1" onClick={()=>setFind(p=>({...p,run:true}))}
+                style={{padding:'8px 20px',border:'none',borderRadius:9,background:'#E8492E',color:'white',
+                  fontSize:13,fontWeight:900,cursor:'pointer',fontFamily:'inherit'}}>この条件で空きを探す</button>
+              <button data-wclr="1" onClick={()=>setFind(p=>({...p,run:false}))}
+                style={{padding:'8px 14px',border:'2px solid #cbd5e1',borderRadius:9,background:'white',
+                  color:'#475569',fontSize:12.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}}>やめる</button>
+              {sr&&<span data-wres="1" style={{fontSize:12.5,fontWeight:800,color:'#9a3412'}}>
+                {find.kind==='insp'?(n+'日に空きがあります'):(mn+'以上とれる空きが '+blk+' か所')}</span>}
+            </div>
+          );
+        })()}
+        <div ref={scRef} style={{flex:1,minHeight:0,overflow:'auto'}}>
+          {/* ★余った高さは行に配らせる（2026-10-23 ユーザー指示：表を最大限に使う）。
+              td の height:26 は最低の高さとして効く */}
+          {/* ★畳んでいる時は高さを伸ばさない。余った高さを行に配ると、残った数行
+              （車検・出勤・09:00 など）が間延びして読みにくくなるため（2026-10-29）。 */}
+          <table style={{borderCollapse:'collapse',width:'100%',height:folded?undefined:'100%',minWidth:980,tableLayout:'fixed'}}>
+            <thead>
+              <tr>
+                <th style={{...TH,width:54,minWidth:54}}></th>
+                {days.map((d,i)=>{const dk=dkOf(d),cl=isClosed(d);
+                  const dowCol=weekDowCol(d);
+                  const hDim=!!(sr&&sr.dayDim[dk]);
+                  return <th key={dk} data-wtoday={dk===todayDk?'1':'0'} data-wdim={hDim?'1':'0'}
+                    style={{...TH,...(dk===todayDk?{background:'#ffedd5',borderTop:TODAY_W+' solid '+TODAY_LINE}:{}),...todayCol(dk),
+                      position:'relative'}}>
+                    <PastOv dk={dk}/>
+                    {hDim&&<DimOv/>}
+                    {/* ★日付のバッジ。押すとその日の1日表示へ移る（2026-10-23 ユーザー指示） */}
+                    <button data-wday={dk} title={(d.getMonth()+1)+'/'+d.getDate()+' のスケジュールを開く'}
+                      onClick={()=>onPickDay&&onPickDay(d.getFullYear(),d.getMonth(),d.getDate())}
+                      style={{display:'inline-flex',alignItems:'center',gap:3,padding:'3px 11px',borderRadius:14,
+                        border:'1.5px solid '+(dk===todayDk?'#0e7490':'#cbd5e1'),
+                        background:dk===todayDk?'#0e7490':'white',
+                        color:dk===todayDk?'white':dowCol,
+                        fontSize:11.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
+                      {(d.getMonth()+1)+'/'+d.getDate()+'（'+weekDowOf(d)+'）'}
+                    </button>
+                    {/* ★日付の右隣に、その日の車検の合計台数（両店あわせて）。2026-10-26 ユーザー指示：合計だけでよい */}
+                    {!cl&&<span data-wdaycnt={dk} title={'この日の車検　合計 '+inspOf(dk).length+'台（両店あわせて）'}
+                      style={{marginLeft:5,display:'inline-flex',alignItems:'center',padding:'2px 7px',borderRadius:9,
+                        border:'1px solid #fed7aa',background:'#fff7ed',color:'#9a3412',
+                        fontSize:11,fontWeight:900,whiteSpace:'nowrap',verticalAlign:'middle'}}>{inspOf(dk).length}台</span>}
+                    {cl&&<div style={{fontWeight:700,color:CLOSED_FG,fontSize:10}}>{CLOSED_LABEL}</div>}
+                  </th>;})}
+              </tr>
+            </thead>
+            <tbody>
+              {/* 車検：マ→ク→レ のバッジ＋＋（押すと予約カード） */}
+              <tr>
+                <td style={{...TM,background:'#fff7ed',color:'#9a3412'}}>車検</td>
+                {days.map(d=>{const dk=dkOf(d);
+                  const iDim=!!(sr&&(sr.dayDim[dk]||find.kind==='sched'));
+                  if(isClosed(d))return <td key={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,...todayCol(dk),
+                    position:'relative'}}><PastOv dk={dk}/>{iDim&&<DimOv/>}</td>;
+                  // ★台数制限（2026-10-23 ユーザー指示）。制限をかけた日は「最大N台」を出し、
+                  //   **その台数に達したら**（＝もう受けられない）欄ぜんぶを赤い網掛けにする。
+                  const lim=(inspLimits||{})[dk];
+                  const cnt=inspOf(dk).length;
+                  const full=lim!=null&&cnt>=lim;
+                  return <td key={dk} data-wins={dk} data-wfull={full?'1':'0'}
+                    title={lim!=null?('車検の台数制限　最大'+lim+'台（いま'+cnt+'台）'+(full?'　★上限に達しています':''))  :undefined}
+                    style={{...TD,background:full?RESTR_BG:'#fff7ed',padding:'3px',...todayCol(dk),
+                      ...(sr&&sr.dayLab[dk]?{background:'#fffbe6',boxShadow:'inset 0 0 0 2px #f59e0b'}:{}),position:'relative'}}>
+                    {sr&&sr.dayLab[dk]&&<span data-wdaylab="1" style={{position:'absolute',right:4,top:1,fontSize:9.5,fontWeight:900,color:'#b45309'}}>{sr.dayLab[dk]}</span>}
+                    <PastOv dk={dk}/>
+                    {iDim&&<DimOv/>}
+                    <div style={INS_GRP}>
+                      {inspGroups(inspOf(dk)).map((g,gi)=>(
+                        <div key={gi} data-wgrp={dk+'/'+gi} style={INS_COL}>
+                          {g.items.map(({r,i})=>{const c=COURSES.find(x=>x.id===r.course);
+                            const oth=!mine(r);   // 他店の予約（車検は両店あわせて出している）
+                            // ★③ 7台目以降の知らせ（2026-10-29 ユーザー指示。カレンダーの日のマスと同じ印）。
+                            //   枠外かどうかを【位置で数えない】。BLOCK-C が付けた印だけで見る：
+                            //     pendingApproval＝枠外でまだ承認されていない（黄）
+                            //     approved       ＝枠外だが本店が手で承認した（緑）
+                            //   枠内に繰り上がると BLOCK-C が両方の印を消すので、印の有無だけで足りる。
+                            //   ★台数制限を掛けた日は6台より少ない所が枠外になる＝「7台目」は日によって違う。
+                            const bang=r.pendingApproval?'wait':(r.approved?'ok':'');
+                            return <button key={i} data-wcb={dk+'/'+i} data-wcboth={oth?'1':'0'} data-wbang={bang||'0'}
+                              title={(r.time||'時間未定')+'　'+sama(r.name)+'　'+((c&&c.name)||'コース未設定')+(oth?'　／　'+(r.store==='sanda'?'三田店':'本店')+'入庫':'')
+                                +(bang?String.fromCharCode(10)+(bang==='ok'?'⚠ 枠からあふれた分です（承認済み）':'⚠ 枠からあふれた分です（まだ承認されていません）'):'')
+                                +String.fromCharCode(10)+weekAtLines(r)}
+                              onClick={()=>onOpenInsp(dk,i)}
+                              style={{...CB,position:'relative',background:(c&&c.color)||'#64748b',
+                                ...(oth?{border:'1.5px solid white',boxShadow:'0 0 0 1.5px '+((c&&c.color)||'#64748b')}:{})}}>
+                              {(c&&c.initial)||'？'}
+                              {bang&&<span data-wbangdot={bang} style={{position:'absolute',top:-6,right:-6,width:14,height:14,
+                                borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
+                                fontSize:10,fontWeight:900,color:'#111',border:'1.5px solid #fff',lineHeight:1,
+                                background:bang==='ok'?'#22c55e':'#facc15',
+                                boxShadow:'0 1px 3px rgba(0,0,0,.3)',pointerEvents:'none'}}>!</span>}
+                            </button>;})}
+                        </div>
+                      ))}
+                      <div style={INS_COL}>
+                        <button data-wiadd={dk} title="この日の車検を新しく受ける" onClick={()=>onAddInsp(dk,nextInspIdx(dk))}
+                          style={{...CB,background:'white',color:'#c2410c',border:'1.5px dashed #fb923c',fontSize:12}}>＋</button>
+                      </div>
+                      {lim!=null&&(
+                        <div data-wlim={dk} style={{alignSelf:'center',padding:'1px 6px',borderRadius:4,
+                          background:full?'#dc2626':'#fff',color:full?'#fff':'#dc2626',
+                          border:'1.5px solid #dc2626',fontSize:9.5,fontWeight:900,whiteSpace:'nowrap'}}>最大{lim}台</div>
+                      )}
+                    </div>
+                  </td>;})}
+              </tr>
+              {/* 出勤：左＝出勤／右＝休み（B案・2026-10-21 ユーザー決定） */}
+              <tr>
+                <td style={{...TM,color:'#475569',borderBottom:STAFF_UNDER}}>出勤</td>
+                {days.map(d=>{const dk=dkOf(d);
+                  const fDim=!!(sr&&sr.dayDim[dk]);
+                  if(isClosed(d))return <td key={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,...todayCol(dk),borderBottom:STAFF_UNDER,
+                    position:'relative'}}><PastOv dk={dk}/>{fDim&&<DimOv/>}</td>;
+                  const offs=((dayOffData||{})[dk]||[]).concat((paidLeaveData||{})[dk]||[]);
+                  const on=(staffList||[]).filter(s=>offs.indexOf(s.name)<0);
+                  const off=(staffList||[]).filter(s=>offs.indexOf(s.name)>=0);
+                  return <td key={dk} data-wstf={dk} style={{...TD,background:'#f8fafc',textAlign:'center',padding:'3px',lineHeight:1,...todayCol(dk),borderBottom:STAFF_UNDER,
+                    position:'relative'}}>
+                    <PastOv dk={dk}/>
+                    {fDim&&<DimOv/>}
+                    {on.map(s=><span key={s.uid||s.name} style={SB} title={s.name}>{staffIni(s)}</span>)}
+                    {off.length>0&&<span style={{display:'inline-block',width:1,height:13,background:'#e2e8f0',margin:'0 5px',verticalAlign:'middle'}}/>}
+                    {off.map(s=><span key={s.uid||s.name} style={SB_OFF} title={s.name+'（休み）'}>{staffIni(s)}</span>)}
+                  </td>;})}
+              </tr>
+              {/* 時間枠：同じ枠に数件あれば積む。12:00 はやめて、その場所に午前入庫を置いた */}
+              {/* ★① 畳んでいる時は「1週間のどこにも予定が無い時間の行」を隠す（2026-10-29 ユーザー指示）。
+                  ・午前入庫（時刻を持たない枠）は隠さない＝置き場所が分からなくなるため
+                  ・空き探しの印が付いた枠も隠さない＝探した結果が消えてしまうため */}
+              {(folded?mainSlots.filter(slotHasAny):mainSlots).map(slot=>slotRow(slot))}
+              {folded&&!mainSlots.some(slotHasAny)&&!WEEK_PIN.some(slotHasAny)&&(
+                <tr data-wfoldnone="1"><td colSpan={8} style={{...TD,textAlign:'center',color:'#94a3b8',
+                  fontSize:12,fontWeight:700,padding:'10px 4px'}}>この1週間は、整備の予定が入っていません</td></tr>
+              )}
+              {/* ★畳んでいる時の「予定を足す」行（2026-10-29 ユーザー指示）。
+                  畳むと空いている枠（＋）も消えるので、足す入口が無くなってしまう。
+                  ここの ＋ は【時間を決めずに】予約カードを開く＝カードの中で時間を選ぶ
+                  （新規で timeSlot が空の時に出る、一般整備と同じ時間の選び方）。 */}
+              {folded&&(
+                <tr data-wfoldadd="1">
+                  <td style={{...TM,background:'#f0fdf4',color:'#047857',fontSize:10,lineHeight:1.15}}>予定を<br/>足す</td>
+                  {days.map(d=>{const dk=dkOf(d);
+                    if(isClosed(d))return <td key={dk} style={{...TD,background:CLOSED_BG,boxShadow:CLOSED_BAR,
+                      ...todayCol(dk),position:'relative'}}><PastOv dk={dk}/></td>;
+                    return <td key={dk} style={{...TD,background:'#f8fafc',textAlign:'center',padding:'3px',
+                      ...todayCol(dk),position:'relative'}}>
+                      <PastOv dk={dk}/>
+                      <button data-wfoldplus={dk}
+                        title={(d.getMonth()+1)+'/'+d.getDate()+' に予定を入れる（時間は予約カードの中で選びます）'}
+                        onClick={()=>onAddSched(dk,'')}
+                        style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:3,
+                          height:20,padding:'0 10px',borderRadius:6,background:'white',color:'#c2410c',
+                          border:'1.5px dashed #fb923c',fontSize:11,fontWeight:900,cursor:'pointer',
+                          fontFamily:'inherit',whiteSpace:'nowrap'}}>＋ 予定</button>
+                    </td>;})}
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {/* ★「午後入庫」「入庫未定」は**スクロールする表の外**に据え置く（2026-10-23 ユーザー指示）。
+            以前は sticky で貼り付けていたが、スクロールすると上の予定の字が重なって読めなくなった。
+            表を分けてしまえば重なりようがない。**sticky に戻さないこと。** */}
+        {(()=>{
+          // ★畳んでいる時は、空の「午後入庫」「時間未定」も隠す（2026-10-30 ユーザー指示）。
+          //   2つとも空なら、下の帯そのものを出さない（区切りの太線だけ残らないように）。
+          const pins=folded?WEEK_PIN.filter(slotHasAny):WEEK_PIN;
+          if(!pins.length)return null;
+          return (
+            <div data-wfoot="1" style={{flexShrink:0,borderTop:'3px solid #94a3b8',background:'white',paddingRight:sbw}}>
+              <table style={{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}}>
+                <tbody>
+                  {pins.map((slot,ix)=>slotRow(slot,ix===pins.length-1))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+        {/* ★いちばん下の説明書きは出さない（2026-10-23 ユーザー指示：表を最大限に広く使う）。
+            色の意味・＋の働き・網掛けは、どれも「なぞると出る説明」で分かるようにしてある。 */}
+        {tip&&(()=>{
+          const W=Math.max(260,Math.min(380,(typeof window!=='undefined'?window.innerWidth:400)-24));
+          const left=Math.max(8,Math.min(tip.left,(window.innerWidth||1200)-W-8));
+          const below=tip.bottom+4, fits=below+160<=(window.innerHeight||800)-8;
+          const pos=fits?{top:below}:{bottom:Math.max(8,(window.innerHeight||800)-tip.top+4)};
+          return (
+            <div data-wtip="1" style={{position:'fixed',left,...pos,zIndex:9999,width:W,background:'white',
+              border:'2px solid #0891b2',borderRadius:10,boxShadow:'0 12px 32px rgba(0,0,0,0.22)',
+              padding:'10px 12px',pointerEvents:'none',whiteSpace:'normal',wordBreak:'break-word',
+              boxSizing:'border-box',textAlign:'left'}}>
+              <div style={{fontSize:10.5,fontWeight:800,color:'#0e7490',marginBottom:5,letterSpacing:'.04em'}}>{tip.head||'📝 内容（全文）'}</div>
+              <div style={{fontSize:13,lineHeight:1.75,color:'#374151'}}>
+                {tip.text.split(String.fromCharCode(10)).map((x,i)=><div key={i}>{x}</div>)}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+});
+
+// ════════════════════════════════════════════════════════════
+//  ダッシュボード（v3.79・2026-10-29 整備からの依頼）
+//   モック：mock_dashboard.html ／ mock_dashboard_shaken.html（2026-10-28 ユーザー確認ずみ）
+//
+//   ★【別のページにしない】＝この画面の中の全画面オーバーレイにしてある。
+//     理由：顧客名・車検の予約はこの画面がすでに持っている（insp と保管箱 insp-arch を
+//     合体した inspData）。別ページにすると**データ層（BLOCK-B）と本人認証をもう1組**
+//     作ることになり、予約消失の元を増やす。顧客リストのように別ページが要るものでもない。
+//
+//   いま入っているのは「車検　使用者の確認」ひとつ。決めごと（2026-10-28 ユーザー）：
+//     ・載せるのは【終わった車検だけ】＝車検日が本日まで。これからの予約は出さない
+//     ・月の区切りは【車検をした日】の月
+//     ・【週ごと】に分ける。月末にまとめてやらずに済む（毎月150台ほどあるため）
+//     ・チェックは「確認した」の1つだけ。誰がいつ押したかも残す
+//     ・来店者と名前が違う行はオレンジ／車検証の使用者が未入力の行は赤
+//   ★チェックは車検の予約そのものには書かない。別の控え（usrchk）に残す。
+//     予約の行を書き換えると、保管箱（insp-arch）に移った過去の予約まで触ることになり、
+//     予約を壊しかねないため（2026-10 の予約消失の反省）。
+// ════════════════════════════════════════════════════════════
+// 氏名を見比べる時は、空白（半角・全角）を外してから比べる。「佐藤 健太」と「佐藤　健太」は同じ人。
+const dashNorm = (s) => String(s||'').replace(/[\s　]/g,'');
+// その行を見分ける印。入庫済みチェック（arrivedKey）と同じ作り方にそろえる。
+const dashRowKey = (r,i) => String((r&&(r.seq||r.custId||r.name))||i);
+const dashWeekOf = (d) => Math.min(5,Math.ceil(d/7));
+const dashStamp = (o) => {
+  if(!o)return '';
+  const d=new Date(Number(o.at||0));
+  if(isNaN(d.getTime())||!o.at)return String(o.by||'');
+  return String(o.by||'')+'　'+(d.getMonth()+1)+'/'+d.getDate();
+};
+
+const DashboardModal = memo(({isOpen,onClose,inspData,usrChk,onSetChecked,onPickDay,storeName,headColor,
+    vehAlert,canAdmin,onOpenVehicle,onOpenStaff,onOpenHoliday,onOpenRestore,onOpenOffline})=>{
+  // ★フックは「早い return」より前に置くこと（React の決まり）
+  const [mon,setMon]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1);});
+  const [filt,setFilt]=useState('all');
+  // ★入口の画面（'home'）→ 押すと中身（いまは 'shaken'＝車検済みチェック）へ。
+  //   これから項目が増えるので、最初からダッシュボードを1枚かませておく（2026-10-29 ユーザー指示）。
+  const [page,setPage]=useState('home');
+  useEffect(()=>{ if(isOpen){const n=new Date();setMon(new Date(n.getFullYear(),n.getMonth(),1));setFilt('all');setPage('home');} },[isOpen]);
+  // その月の「終わった車検」を集める
+  const rows=useMemo(()=>{
+    const y=mon.getFullYear(),m=mon.getMonth();
+    const last=new Date(y,m+1,0).getDate();
+    const n=new Date();
+    const todayNum=n.getFullYear()*10000+(n.getMonth()+1)*100+n.getDate();
+    const out=[];
+    for(let d=1;d<=last;d++){
+      // ★これから先の車検は「終わっていない」ので出さない（当日の分までは出す）
+      if(y*10000+(m+1)*100+d>todayNum)break;
+      const dk=y+'-'+(m+1)+'-'+d;
+      (inspData[dk]||[]).forEach((r,i)=>{
+        if(!r||!r.name)return;
+        if(r.bookingStatus==='cancelled')return;
+        if(r.pendingApproval)return;                  // 承認待ち＝まだ受けていない
+        const nm=dashNorm(r.name),us=dashNorm(r.user);
+        out.push({dk,d,i,r,week:dashWeekOf(d),key:dashRowKey(r,i),
+          kind:!us?'empty':(us===nm?'same':'diff')});
+      });
+    }
+    return out;
+  },[inspData,mon]);
+  if(!isOpen)return null;
+
+  const chkOf=(x)=>((usrChk||{})[x.dk]||{})[x.key]||null;
+  const done=rows.filter(x=>!!chkOf(x)).length;
+  const ndiff=rows.filter(x=>x.kind==='diff'||x.kind==='empty').length;
+  const pct=rows.length?Math.round(done/rows.length*100):0;
+  const cnt={1:0,2:0,3:0};
+  rows.forEach(x=>{const c=Number(x.r.course);if(cnt[c]!=null)cnt[c]++;});
+  const nowM=new Date();
+  const isThisMonth=mon.getFullYear()===nowM.getFullYear()&&mon.getMonth()===nowM.getMonth();
+  const shown=rows.filter(x=>{
+    if(filt==='todo')return !chkOf(x);
+    if(filt==='done')return !!chkOf(x);
+    if(filt==='diff')return x.kind==='diff'||x.kind==='empty';
+    return true;
+  });
+
+  const TH={padding:'8px 10px',fontSize:11.5,fontWeight:800,color:'#64748b',background:'#f8fafc',
+    textAlign:'left',whiteSpace:'nowrap',borderBottom:'1px solid #e2e8f0'};
+  const TD={padding:'8px 10px',fontSize:13.5,borderBottom:'1px solid #eef2f6',verticalAlign:'middle'};
+  const PILL=(on)=>({padding:'7px 13px',borderRadius:20,border:'1.5px solid '+(on?'#1d4ed8':'#e2e8f0'),
+    background:on?'#1d4ed8':'white',color:on?'white':'#64748b',fontSize:12,fontWeight:800,
+    cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'});
+  const NAV={fontSize:13,fontWeight:800,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,
+    padding:'7px 11px',cursor:'pointer',color:'#1f2a37',fontFamily:'inherit'};
+  const STAT=(k,v,u,col)=>(
+    <div style={{display:'flex',flexDirection:'column',gap:2}}>
+      <div style={{fontSize:11.5,fontWeight:700,color:'#64748b'}}>{k}</div>
+      <div style={{fontSize:21,fontWeight:900,lineHeight:1,color:col||'#1f2a37'}}>{v}
+        <small style={{fontSize:12,fontWeight:700,color:'#64748b',marginLeft:3}}>{u}</small></div>
+    </div>);
+
+  return (
+    <div data-dash="1" style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:900,
+      display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{background:'#f1f5f9',borderRadius:12,width:'99vw',height:'98vh',display:'flex',
+          flexDirection:'column',overflow:'hidden',boxShadow:'0 30px 80px rgba(0,0,0,.45)'}}>
+        {/* 見出し */}
+        <div style={{flexShrink:0,display:'flex',alignItems:'center',gap:12,padding:'8px 14px',
+          background:headColor||'linear-gradient(135deg,#1e3a8a,#1d4ed8)',color:'white'}}>
+          <b style={{fontSize:16,fontWeight:800,whiteSpace:'nowrap'}}>🏠 ダッシュボード</b>
+          {page!=='home'&&(
+            <button data-dashback="1" onClick={()=>setPage('home')} title="ダッシュボードの入口に戻る"
+              style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+                padding:'5px 12px',fontSize:12.5,fontWeight:800,color:'white',cursor:'pointer',
+                fontFamily:'inherit',whiteSpace:'nowrap'}}>← ダッシュボードに戻る</button>
+          )}
+          {page==='shaken'&&(
+            <span style={{fontSize:11.5,background:'rgba(255,255,255,.22)',padding:'3px 9px',borderRadius:9,
+              fontWeight:700,whiteSpace:'nowrap'}}>車検済みチェック（使用者の確認）</span>
+          )}
+          <span style={{fontSize:12.5,opacity:.95,whiteSpace:'nowrap'}}>{storeName}</span>
+          <span style={{flex:1}}/>
+          <button data-dashclose="1" onClick={onClose} title="閉じる"
+            style={{background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.45)',borderRadius:7,
+              padding:'5px 13px',fontSize:13,fontWeight:900,color:'white',cursor:'pointer',fontFamily:'inherit'}}>✕ 閉じる</button>
+        </div>
+
+        <div style={{flex:1,minHeight:0,overflow:'auto',padding:'12px 14px 40px'}}>
+          {page==='home'?(()=>{
+            // ★入口の画面。これから項目が増えるので、押して入る形にしてある。
+            const TILE={background:'white',border:'1px solid #e2e8f0',borderRadius:14,padding:18,
+              display:'flex',flexDirection:'column',gap:10,minHeight:150};
+            const BADGE=(bg,fg,bd)=>({fontSize:12,fontWeight:900,borderRadius:20,padding:'4px 11px',
+              whiteSpace:'nowrap',background:bg,color:fg,border:'1.5px solid '+bd});
+            const soon=(ic,ttl,txt)=>(
+              <div key={ttl} data-dashsoon={ttl} style={{...TILE,opacity:.6}}>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:26,lineHeight:1}}>{ic}</span>
+                  <h3 style={{fontSize:16,margin:0,fontWeight:900,flex:1}}>{ttl}</h3>
+                  <span style={{fontSize:11,fontWeight:800,color:'#64748b',background:'#f1f5f9',
+                    border:'1px solid #e2e8f0',borderRadius:20,padding:'4px 10px'}}>これから</span>
+                </div>
+                <p style={{margin:0,fontSize:13,color:'#64748b',lineHeight:1.75}}>{txt}</p>
+              </div>);
+            return (
+              <div>
+                <div style={{fontSize:13,color:'#64748b',marginBottom:13,lineHeight:1.85}}>
+                  <b style={{color:'#1f2a37',fontSize:14}}>{nowM.getFullYear()}年{nowM.getMonth()+1}月{nowM.getDate()}日　{storeName}</b><br/>
+                  見たいものを押してください。<b>これから</b>と書いてあるものは、まだ中身がありません。
+                </div>
+                <div style={{fontSize:13,fontWeight:900,color:'#1e3a8a',margin:'4px 0 9px',
+                  display:'flex',alignItems:'center',gap:8}}>仕事の確認
+                  <span style={{flex:1,borderTop:'2px dotted #cbd5e1'}}/></div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))',gap:14}}>
+                  <div data-dashtile="shaken" onClick={()=>setPage('shaken')} title="車検証の使用者の確認リストを開く"
+                    style={{...TILE,cursor:'pointer',borderColor:'#93b4e6'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <span style={{fontSize:26,lineHeight:1}}>✅</span>
+                      <h3 style={{fontSize:16,margin:0,fontWeight:900,flex:1}}>車検済みチェック</h3>
+                      {rows.length-done>0
+                        ?<span style={BADGE('#fef2f2','#b91c1c','#fecaca')}>未確認 {rows.length-done}</span>
+                        :<span style={BADGE('#ecfdf5','#047857','#a7f3d0')}>✓ ぜんぶ確認ずみ</span>}
+                    </div>
+                    <div style={{fontSize:30,fontWeight:900,lineHeight:1}}>{rows.length}
+                      <small style={{fontSize:13,fontWeight:700,color:'#64748b',marginLeft:4}}>台／{mon.getMonth()+1}月</small></div>
+                    <div style={{height:9,background:'#e2e8f0',borderRadius:6,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:pct+'%',background:'linear-gradient(90deg,#10b981,#047857)'}}/></div>
+                    <p style={{margin:0,fontSize:13,color:'#64748b',lineHeight:1.75}}>
+                      車検証の使用者と、来店した人が同じか確かめます。<br/>
+                      <b>名前が違う・未入力 {ndiff}台</b>。週ごとに確認できます。</p>
+                  </div>
+                  {/* ★車両管理（2026-10-29 ユーザー指示でここへ移した）。
+                      赤・オレンジがあると、スケジュール画面のダッシュボードのボタンに「！」が出る。 */}
+                  {(()=>{
+                    const va=vehAlert||{red:0,orange:0,yellow:0,level:0};
+                    const bg=va.level>=3?BADGE('#fef2f2','#b91c1c','#fecaca')
+                      :va.level===2?BADGE('#fff7ed','#b45309','#fed7aa')
+                      :va.level===1?BADGE('#fefce8','#a16207','#fde68a')
+                      :BADGE('#ecfdf5','#047857','#a7f3d0');
+                    const lab=va.level>=3?('期日ぎれ '+va.red+'台'):va.level===2?('もうすぐ '+va.orange+'台')
+                      :va.level===1?('そろそろ '+va.yellow+'台'):'異常なし';
+                    return (
+                      <div data-dashtile="vehicle" onClick={()=>onOpenVehicle&&onOpenVehicle()}
+                        title="車両管理を開く（工場代車・レンタカー・社用車・展示車の点検）"
+                        style={{...TILE,cursor:'pointer',borderColor:va.level>=2?'#fdba74':'#e2e8f0'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <span style={{fontSize:26,lineHeight:1}}>🔔</span>
+                          <h3 style={{fontSize:16,margin:0,fontWeight:900,flex:1}}>車両管理</h3>
+                          <span data-vehbdg={String(va.level)} style={bg}>{lab}</span>
+                        </div>
+                        <p style={{margin:0,fontSize:13,color:'#64748b',lineHeight:1.75}}>
+                          🔴 期日ぎれ {va.red}台　🟠 もうすぐ {va.orange}台　🟡 そろそろ {va.yellow}台<br/>
+                          工場代車・レンタカー・社用車・展示車の点検と期限。</p>
+                      </div>);
+                  })()}
+                  {soon('🔍','顧客を探す','ブロードリーフが見られない時の控えとして。ここから一般整備の予約にも入れるようにします。')}
+                  {soon('💾','控えの状態','毎朝の控えが取れているか、Google ドライブに写しがあるかを出します。')}
+                  {soon('🔔','来店の目安アラート','前回から一定の期間が空いたお客様を知らせる、という案があります。まだ何も決まっていません。')}
+                </div>
+                {/* ★設定・道具（2026-10-29 ユーザー指示でスケジュール画面から移した）。
+                    どれも【このアプリの中の仕組み】なので、そのまま呼ぶだけ。作り直していない。
+                    設定の画面はダッシュボードより上（zIndex 2000〜）に出るので、閉じるとここへ戻る。 */}
+                <div style={{fontSize:13,fontWeight:900,color:'#1e3a8a',margin:'22px 0 9px',
+                  display:'flex',alignItems:'center',gap:8}}>設定・道具
+                  <span style={{flex:1,borderTop:'2px dotted #cbd5e1'}}/></div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:14}}>
+                  {[
+                    ['staff','👥','スタッフ管理','名前・番号・バッジ・週表示の1文字',onOpenStaff,true],
+                    ['holiday','⚙','休業日の設定','定休日・第2火曜・臨時の休み',onOpenHoliday,true],
+                    ['restore','🕒','データ復旧','時点保存から戻す（開けるのは決まった人だけ）',onOpenRestore,true],
+                    ['offline','💾','オフライン予定表の控え','ネットが止まった時に紙で使う控えを出す',onOpenOffline,false],
+                  ].filter(x=>!x[5]||canAdmin).map(([id,ic,ttl,txt,fn])=>(
+                    <div key={id} data-dashtool={id} onClick={()=>fn&&fn()} title={ttl}
+                      style={{...TILE,minHeight:100,cursor:'pointer'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <span style={{fontSize:22,lineHeight:1}}>{ic}</span>
+                        <h3 style={{fontSize:14.5,margin:0,fontWeight:900,flex:1}}>{ttl}</h3>
+                      </div>
+                      <p style={{margin:0,fontSize:12.5,color:'#64748b',lineHeight:1.7}}>{txt}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>);
+          })():(<React.Fragment>
+          {/* 上の帯：月送り・進み具合・絞り込み */}
+          <div style={{background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'11px 13px',
+            display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',marginBottom:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <button data-dashprev="1" style={NAV}
+                onClick={()=>setMon(p=>new Date(p.getFullYear(),p.getMonth()-1,1))}>‹ 前の月</button>
+              <span data-dashmon="1" style={{fontSize:18,fontWeight:900,padding:'0 8px',minWidth:150,textAlign:'center'}}>
+                {mon.getFullYear()}年{mon.getMonth()+1}月</span>
+              <button data-dashnext="1" disabled={isThisMonth} title={isThisMonth?'これから先の車検はまだ終わっていません':''}
+                style={{...NAV,opacity:isThisMonth?.4:1,cursor:isThisMonth?'default':'pointer'}}
+                onClick={()=>{if(!isThisMonth)setMon(p=>new Date(p.getFullYear(),p.getMonth()+1,1));}}>次の月 ›</button>
+            </div>
+            <div style={{flex:1,minWidth:240,display:'flex',flexDirection:'column',gap:5}}>
+              <div data-dashprog="1" style={{fontSize:13,fontWeight:700,color:'#64748b'}}>
+                確認ずみ <b style={{color:'#047857',fontSize:15}}>{done}</b> / {rows.length} 台
+                　（残り {rows.length-done} 台・{pct}%）</div>
+              <div style={{height:10,background:'#e2e8f0',borderRadius:6,overflow:'hidden'}}>
+                <div style={{height:'100%',width:pct+'%',background:'linear-gradient(90deg,#10b981,#047857)'}}/>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {[['all','すべて',rows.length],['todo','未確認だけ',rows.length-done],
+                ['done','チェック済み',done],['diff','名前が違うものだけ',ndiff]].map(([id,lab,n])=>(
+                <button key={id} data-dashfilt={id} onClick={()=>setFilt(id)} style={PILL(filt===id)}>
+                  {lab} <span style={{opacity:.85,fontWeight:900}}>{n}</span></button>
+              ))}
+            </div>
+          </div>
+
+          {/* その月の内訳 */}
+          <div style={{background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'12px 14px',
+            display:'flex',gap:26,alignItems:'center',flexWrap:'wrap',marginBottom:12}}>
+            <div style={{fontSize:14,fontWeight:900,whiteSpace:'nowrap'}}>{mon.getMonth()+1}月の終わった車検</div>
+            {STAT('合計',rows.length,'台')}
+            {STAT('マッハ',cnt[1],'台','#b91c1c')}
+            {STAT('クイック',cnt[2],'台','#1d4ed8')}
+            {STAT('レギュラー',cnt[3],'台','#d97706')}
+            {STAT('名前が違う・未入力',ndiff,'台','#9a3412')}
+            <span style={{flex:1}}/>
+            <div style={{fontSize:11.5,color:'#64748b',lineHeight:1.7,maxWidth:420}}>
+              これから足すもの … 顧客を探す／控えの状態／来店の目安アラート
+            </div>
+          </div>
+
+          {/* 週ごとのリスト */}
+          {!shown.length?(
+            <div style={{background:'white',border:'1px dashed #cbd5e1',borderRadius:12,padding:26,
+              textAlign:'center',color:'#64748b',fontSize:14,fontWeight:700}}>
+              {rows.length?'この条件に当てはまる車検はありません。':'この月に終わった車検はまだありません。'}
+            </div>
+          ):[1,2,3,4,5].map(w=>{
+            const ws=shown.filter(x=>x.week===w);
+            if(!ws.length)return null;
+            const all=rows.filter(x=>x.week===w);
+            const rest=all.filter(x=>!chkOf(x));
+            const last=new Date(mon.getFullYear(),mon.getMonth()+1,0).getDate();
+            return (
+              <div key={w} data-dashweek={w}>
+                <div style={{display:'flex',alignItems:'center',gap:10,margin:'16px 0 8px',flexWrap:'wrap'}}>
+                  <h3 style={{fontSize:15,margin:0,fontWeight:900,color:'#1e3a8a'}}>
+                    第{w}週（{(w-1)*7+1}日〜{Math.min(w*7,last)}日）</h3>
+                  <span style={{fontSize:12,fontWeight:700,color:'#64748b',background:'white',
+                    border:'1px solid #e2e8f0',borderRadius:16,padding:'4px 10px'}}>{all.length} 台</span>
+                  {rest.length===0
+                    ?<span data-dashwdone={w} style={{fontSize:12,fontWeight:800,color:'#047857',background:'#ecfdf5',
+                       border:'1px solid #a7f3d0',borderRadius:16,padding:'4px 10px'}}>✓ この週は確認ずみ</span>
+                    :<span data-dashwrest={w} style={{fontSize:12,fontWeight:800,color:'#b45309',background:'#fff7ed',
+                       border:'1px solid #fed7aa',borderRadius:16,padding:'4px 10px'}}>未確認 {rest.length} 台</span>}
+                  <span style={{flex:1,minWidth:20,borderTop:'2px dotted #cbd5e1'}}/>
+                  {rest.length>0&&(
+                    <button data-dashwall={w}
+                      onClick={()=>{ if(window.confirm('第'+w+'週の '+rest.length+' 台を、まとめて「確認した」にします。よろしいですか。'))
+                        onSetChecked(rest.map(x=>({dk:x.dk,key:x.key})),true); }}
+                      style={{...NAV,fontSize:12,background:'white'}}>この週をまとめて確認ずみにする</button>
+                  )}
+                </div>
+                <table style={{width:'100%',borderCollapse:'collapse',background:'white',
+                  border:'1px solid #e2e8f0',borderRadius:12,overflow:'hidden'}}>
+                  <thead><tr>
+                    <th style={{...TH,width:84}}>車検日</th>
+                    <th style={{...TH,width:'19%'}}>顧客名（来店者）</th>
+                    <th style={{...TH,width:'22%'}}>車検証の使用者</th>
+                    <th style={{...TH,width:'20%'}}>車種・ナンバー</th>
+                    <th style={{...TH,width:'9%'}}>担当</th>
+                    <th style={{...TH,width:118,textAlign:'center'}}>確認</th>
+                  </tr></thead>
+                  <tbody>
+                    {ws.map(x=>{
+                      const ck=chkOf(x);
+                      const bad=x.kind==='diff'||x.kind==='empty';
+                      const open=()=>{const p=x.dk.split('-').map(Number);onPickDay&&onPickDay(p[0],p[1]-1,p[2]);};
+                      return (
+                        <tr key={x.dk+'/'+x.i} data-dashrow={x.dk+'/'+x.key} data-dashkind={x.kind}
+                          data-dashchk={ck?'1':'0'}
+                          style={{background:bad?'#fff7ed':'white',opacity:ck?.58:1}}>
+                          <td style={{...TD,whiteSpace:'nowrap',fontWeight:700,color:'#64748b'}}>
+                            {mon.getMonth()+1}/{x.d}</td>
+                          <td style={{...TD,fontWeight:700,textDecoration:ck?'line-through':'none'}}>
+                            <span data-dashopen="1" onClick={open} title="この日のスケジュールを開く（予約カードから直せます）"
+                              style={{cursor:'pointer',borderBottom:'1px dotted #94a3b8'}}>{sama(x.r.name)}</span></td>
+                          <td style={TD}>
+                            {x.kind==='empty'?(
+                              <button data-dashempty="1" onClick={open}
+                                title="予約カードを開いて、車検証の使用者を入れる（同じなら「同じ」を押す）"
+                                style={{fontSize:12,fontWeight:700,color:'#b91c1c',background:'#fef2f2',
+                                  border:'1px solid #fecaca',borderRadius:9,padding:'4px 9px',cursor:'pointer',
+                                  fontFamily:'inherit'}}>未入力</button>
+                            ):(<>
+                              <span style={{fontWeight:x.kind==='diff'?800:400,color:x.kind==='diff'?'#9a3412':'#1f2a37'}}>
+                                {x.r.user}</span>
+                              {x.kind==='diff'
+                                ?<span data-dashdiff="1" style={{fontSize:11,fontWeight:800,color:'#9a3412',
+                                   background:'#ffedd5',border:'1px solid #fed7aa',borderRadius:9,padding:'2px 7px',
+                                   marginLeft:6,whiteSpace:'nowrap'}}>名前が違う</span>
+                                :<span style={{fontSize:11,fontWeight:700,color:'#64748b'}}> （同じ）</span>}
+                            </>)}
+                          </td>
+                          <td style={{...TD,color:'#64748b'}}>{x.r.carType||''}　{x.r.no||''}</td>
+                          <td style={{...TD,color:'#64748b',whiteSpace:'nowrap'}}>{x.r.staff||''}</td>
+                          <td style={{...TD,textAlign:'center'}}>
+                            <span data-dashmark={ck?'1':'0'} title={ck?('確認ずみ'+(dashStamp(ck)?'　'+dashStamp(ck):'')+'（押すと取り消し）'):'確認したら押す'}
+                              onClick={()=>onSetChecked([{dk:x.dk,key:x.key}],!ck)}
+                              style={{width:30,height:30,borderRadius:'50%',cursor:'pointer',
+                                border:'2px solid '+(ck?'#f59e0b':'#cbd5e1'),background:ck?'#fde68a':'white',
+                                color:ck?'#dc2626':'transparent',display:'inline-flex',alignItems:'center',
+                                justifyContent:'center',fontSize:17,fontWeight:900}}>✓</span>
+                            {ck&&dashStamp(ck)&&(
+                              <span style={{display:'block',fontSize:10.5,color:'#64748b',marginTop:3,
+                                whiteSpace:'nowrap'}}>{dashStamp(ck)}</span>)}
+                          </td>
+                        </tr>);
+                    })}
+                  </tbody>
+                </table>
+              </div>);
+          })}
+
+          <div style={{marginTop:16,background:'white',border:'1px solid #e2e8f0',borderRadius:12,
+            padding:'13px 15px',fontSize:13,color:'#64748b',lineHeight:1.9}}>
+            <b style={{color:'#1f2a37'}}>この画面の決まりごと</b><br/>
+            ・載るのは<b>終わった車検だけ</b>です（車検日が本日まで）。これからの予約は出ません。<br/>
+            ・月の区切りは<b>車検をした日</b>です。<br/>
+            ・<b>週ごとに分けて</b>あります。月末にまとめてやらず、1週終わったところで確認できます。<br/>
+            ・<b>名前が違う行はオレンジ</b>、<b>使用者が未入力の行は赤</b>で出ます。そこだけ見れば済みます。<br/>
+            ・氏名を押すとその日のスケジュールが開きます。<b>使用者は予約カードで入れてください</b>（同じなら「同じ」を押す）。<br/>
+            ・チェックは<b>「確認した」の印</b>です。誰がいつ押したかも残ります。
+          </div>
+          </React.Fragment>)}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+
 // ============================================
 //  スタッフ設定モーダル（編集・削除・番号変更）
 // ============================================
@@ -4264,6 +5377,7 @@ const StaffSettingsModal=memo(({isOpen,onClose,staffListH,staffListS,onUpdate,on
   const [editBadge,setEditBadge]=useState('mechanic');
   const [editCaps,setEditCaps]=useState({}); // capabilities
   const [editStore,setEditStore]=useState('honten');
+  const [editIni,setEditIni]=useState('');   // 週表示のバッジに出す1文字（空なら名前の先頭1文字）
   const [confirmDel,setConfirmDel]=useState(false);
   const [tab,setTab]=useState('honten');
   const [lockedBy,setLockedBy]=useState(null);
@@ -4309,7 +5423,7 @@ const StaffSettingsModal=memo(({isOpen,onClose,staffListH,staffListS,onUpdate,on
     setSelUid(s.uid);setEditName(s.name);setEditBadge(s.badge||'mechanic');setConfirmDel(false);
     setEditEmail(s.loginEmail||'');setInviteMsg('');
     setEditCaps(s.capabilities||getDefaultCapabilities(s.badge||'mechanic'));
-    setEditStore(s.store||'honten');
+    setEditStore(s.store||'honten');setEditIni(s.ini||'');
   };
 
   const handleUpdate=()=>{
@@ -4318,6 +5432,7 @@ const StaffSettingsModal=memo(({isOpen,onClose,staffListH,staffListS,onUpdate,on
     if(!target)return;
     // 番号（myNumber）は画面から外した。既存の値をそのまま引き継ぐ（並び順・社長判定の裏方の値）
     onUpdate({...target,name:editName.trim(),badge:editBadge,capabilities:editCaps,store:editStore,
+      ini:editIni.trim().slice(0,2),
       loginEmail:editEmail.trim().toLowerCase()||undefined});
     setSelUid(null);
   };
@@ -4614,6 +5729,21 @@ const StaffSettingsModal=memo(({isOpen,onClose,staffListH,staffListS,onUpdate,on
                       onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
                   </div>
 
+                  {/* 週表示のバッジに出す1文字（v3.69・2026-10-21） */}
+                  <div>
+                    <div style={{fontWeight:700,fontSize:12,color:'#374151',marginBottom:6}}>🔖 週表示の1文字</div>
+                    <input value={editIni} onChange={e=>setEditIni(e.target.value)} maxLength={2}
+                      placeholder={'空なら「'+(editName.trim().slice(0,1)||'？')+'」'}
+                      style={{width:90,padding:'9px 11px',border:'2px solid #e5e7eb',borderRadius:8,fontSize:15,fontWeight:800,textAlign:'center',outline:'none',boxSizing:'border-box'}}
+                      onFocus={e=>e.target.style.borderColor='#c2410c'}
+                      onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+                    <div style={{fontSize:11,color:'#6b7280',marginTop:5,lineHeight:1.7}}>
+                      週表示の出勤バッジに出る文字です。<b>空のままなら名前の先頭1文字</b>が出ます。
+                      いまは全員それで分かれているので、<b>空のままにしてください</b>。
+                      同じ文字の人が出てきた時だけ、ここで決めます。
+                    </div>
+                  </div>
+
                   {/* ログイン用メール（本人認証） */}
                   <div>
                     <div style={{fontWeight:700,fontSize:12,color:'#374151',marginBottom:6}}>🔑 ログイン用メール</div>
@@ -4733,6 +5863,11 @@ const StaffSettingsModal=memo(({isOpen,onClose,staffListH,staffListS,onUpdate,on
 // 招待メールのリンクに付いている印（?inv=…）。開くだけで誰の登録か伝わるので、
 // アドレスを打つ段を飛ばして6桁の入力から始める（ユーザー指摘 2026-09-15）。
 // 登録が済んだら（やめた時も）URLから印を外す。残すと開き直すたびに登録画面が出る。
+// ★ダッシュボードを別タブで開いた印（2026-10-29 ユーザー指示）。
+//   ★中身は【このアプリそのもの】を ?dash=1 で開くだけ。**別のページにはしない**。
+//     別ページにすると、データのやりとり（BLOCK-B）と本人確認をもう1組作ることになり、
+//     設定の道具（スタッフ管理・休業日・復旧・控え）も作り直しになる。
+const HUB_DASH_OPEN=(()=>{try{return new URLSearchParams(location.search).get('dash')==='1';}catch(e){return false;}})();
 const HUB_INVITE_ID=(()=>{try{return new URLSearchParams(location.search).get('inv')||'';}catch(e){return '';}})();
 const hubDropInvite=()=>{ if(!HUB_INVITE_ID)return; try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){} };
 // ── 登録の引き継ぎ（?hand=…）──────────────────────────────────────
@@ -5722,16 +6857,16 @@ const offSheetHtml = (d) => {
     + "<div class=meta>車検 " + day.insp.length + "台 ／ 整備 " + day.sched.length + "件 ／ 代車の貸出 " + day.loan.length + "台　|　この写しは " + offEsc(d.stamp) + " 時点</div>"
     + "<h3 class=r>🚗 車検（入庫予定）</h3>"
     + table(day.insp, [{ t: "入庫", w: 52, c: 1, v: r => r.time || "未定" }, { t: "済", w: 34, chk: 1 },
-        { t: "氏名", v: r => r.name }, { t: "車種", v: r => r.carType }, { t: "ナンバー", w: 60, c: 1, v: r => r.no },
+        { t: "氏名", v: r => sama(r.name) }, { t: "車種", v: r => r.carType }, { t: "ナンバー", w: 60, c: 1, v: r => r.no },
         { t: "コース", w: 78, c: 1, v: r => r.course }, { t: "電話", w: 110, tel: 1, v: r => r.phone },
         { t: "代車", w: 112, v: r => r.loaner }, { t: "担当", w: 60, c: 1, v: r => r.staff }, { t: "備考", v: r => r.note }])
     + "<h3>⏰ 整備（タイムスケジュール）</h3>"
     + table(day.sched, [{ t: "時間", w: 52, c: 1, v: r => r.time }, { t: "済", w: 34, chk: 1 },
-        { t: "氏名", v: r => r.name }, { t: "車種", v: r => r.carType }, { t: "ナンバー", w: 60, c: 1, v: r => r.no },
+        { t: "氏名", v: r => sama(r.name) }, { t: "車種", v: r => r.carType }, { t: "ナンバー", w: 60, c: 1, v: r => r.no },
         { t: "電話", w: 110, tel: 1, v: r => r.phone }, { t: "内容", v: r => r.content }, { t: "担当", w: 60, c: 1, v: r => r.staff }])
     + "<h3 class=g>🚙 代車・レンタカー（この日に貸している分）</h3>"
     + table(day.loan, [{ t: "車", w: 120, v: r => r.car }, { t: "ナンバー", w: 60, c: 1, v: r => r.num },
-        { t: "貸出先", v: r => r.user }, { t: "期間", w: 150, c: 1, v: r => r.span }, { t: "区分", w: 70, c: 1, v: r => r.kind }])
+        { t: "貸出先", v: r => sama(r.user) }, { t: "期間", w: 150, c: 1, v: r => r.span }, { t: "区分", w: 70, c: 1, v: r => r.kind }])
     + (day.free.length ? "<div style='margin-top:6px;font-size:12px;color:#475569'><b>空いている代車：</b>" + offEsc(day.free.join(" ／ ")) + "</div>" : "")
     + "<h3 class=a>📝 備考・スタッフ休日</h3>"
     + ((day.memo.length || day.off.length)
@@ -5925,7 +7060,7 @@ const FindModal=memo(({isOpen,onClose,inspData,schedDataH,schedDataS,onGo,onGoCu
             <Row key={'i'+h.dk+'-'+h.ix} onClick={()=>onGo({kind:'insp',dk:h.dk,ix:h.ix,store:(h.r.store==='sanda'||h.r.store==='三田店')?'sanda':'honten'})}>
               <span style={{fontWeight:800,color:'#1d4ed8',width:92,flexShrink:0}}>{dkLabel(h.dk)}</span>
               <Pill c={h.r.bookingStatus==='cancelled'?'#9ca3af':'#c2410c'}>{h.r.bookingStatus==='cancelled'?'取消':'車検'}</Pill>
-              <span style={{fontWeight:800}}>{mark(h.r.name)}</span>
+              <span style={{fontWeight:800}}>{mark(h.r.name)}{SAMA_RE.test(String(h.r.name||'').trim())?'':SAMA_GAP+'様'}</span>
               <span style={{color:'#64748b',fontSize:12,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mark(h.r.carType||'')}{h.r.carType?' ・ ':''}{storeName(h.r.store)}{h.r.time?' ・ '+h.r.time:''}{h.r.no?' ・ No.'+h.r.no:''}</span>
             </Row>
           ))}
@@ -5933,7 +7068,7 @@ const FindModal=memo(({isOpen,onClose,inspData,schedDataH,schedDataS,onGo,onGoCu
             <Row key={'s'+h.store+h.dk+'-'+h.sk} onClick={()=>onGo({kind:'sched',dk:h.dk,sk:h.sk,store:h.store})}>
               <span style={{fontWeight:800,color:'#1d4ed8',width:92,flexShrink:0}}>{dkLabel(h.dk)}</span>
               <Pill c="#0e7490">整備</Pill>
-              <span style={{fontWeight:800}}>{mark(h.r.name)}</span>
+              <span style={{fontWeight:800}}>{mark(h.r.name)}{SAMA_RE.test(String(h.r.name||'').trim())?'':SAMA_GAP+'様'}</span>
               <span style={{color:'#64748b',fontSize:12,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mark(h.r.carType||'')}{h.r.carType?' ・ ':''}{storeName(h.store)}{' ・ '+getBaseSlot(h.sk)}{h.r.work?' ・ '+h.r.work:''}</span>
             </Row>
           ))}
@@ -7097,7 +8232,7 @@ const withDeliveryNote = (entry, dk, isInsp) => {
   e[field] = ('【' + Number(p[1]) + '/' + Number(p[2]) + ' 納車】' + (base ? ' ' + base : ''));
   return e;
 };
-const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabel,timeSlot,onSave,onDelete,onDateChange,onOpenLoanerPicker,pendingLoanerId,pendingLoanerData,pendingRentalId,pendingRentalRec,rentalCarsData,loanerRes,modalDk,modalIdx:modalIdxProp,onDeleteLoaner,onToggleLoanerLock,onTogglePendingLoanerLock,currentUser,setItems,onOpenSetItemEdit,allCars,fromCustList,savedModalData,inspData:bmInspData,closedDays:bmClosedDays,closedDates:bmClosedDates,overrideOpenDates:bmOverrideOpen,inspLimits:bmInspLimits})=>{
+const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabel,timeSlot,onSave,onDelete,onDateChange,onOpenLoanerPicker,pendingLoanerId,pendingLoanerData,pendingRentalId,pendingRentalRec,rentalCarsData,loanerRes,modalDk,modalIdx:modalIdxProp,onDeleteLoaner,onToggleLoanerLock,onTogglePendingLoanerLock,currentUser,setItems,onOpenSetItemEdit,allCars,fromCustList,savedModalData,staffHere,staffAll,inspData:bmInspData,closedDays:bmClosedDays,closedDates:bmClosedDates,overrideOpenDates:bmOverrideOpen,inspLimits:bmInspLimits})=>{
   const [form,setForm]=useState(initialData);
   // ★入庫店舗（2026-10-02 ユーザー指示）。開いた時はその予約が今入っている店。
   //   三田店で予約したお客様が本店入庫に変わる、といった時に使う（めったに使わない）。
@@ -7106,6 +8241,7 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
   const [staffInput,setStaffInput]=useState('');
   const [showStaff,setShowStaff]=useState(false);
   const nameRef=useRef(null);
+  const userRef=useRef(null);   // 車検証の使用者（車検のカードだけ）
   const staffRef=useRef(null);
   const carRef=useRef(null);
   const carNoRef=useRef(null);     // ナンバー4桁（2026-09-30）
@@ -7209,7 +8345,7 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
   const canDelete=!!onDelete;
 
   // ── キーボード操作 ──────────────────────────────────────────
-  const INSP_ORDER=['name','staff','car','carno','course','tokuten','time','note'];
+  const INSP_ORDER=['name','user','staff','car','carno','course','tokuten','time','note'];
   //   ★整備は先頭に時間帯（2026-10-15）。畳んだ状態から追加した時はここが必須の欄になる。
   const SCHED_ORDER=['slot','name','staff','car','carno','work','shimi','note'];
   const ORDER=isInsp?INSP_ORDER:SCHED_ORDER;
@@ -7219,6 +8355,19 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
     :{};
   // 次/前のフィールドへ
   const TIME_VALS=SCHED_SLOTS; // 9:00〜18:00＋整理用の特別枠（未定/午前/午後）
+  // ★カードの中のポップは【中をスクロールさせない】（2026-10-30 ユーザー指示・A案）。
+  //   欄のすぐ下に項目を全部ならべて出す。選ぶ時に全体を見渡せるようにするため。
+  //   ・列の数は mock_card_pop.html で見比べて決めた（時間は4列・作業内容と指見は2列）。
+  //   ・ポップの中に maxHeight / overflow を付け直さないこと（スクロールが戻る）。
+  //   ・position:fixed では出せない。カードは .slide-in の transform で包含ブロックになるので、
+  //     fixed にするとカードの中に閉じ込められ、カードの overflow で切られる（実測）。
+  const POPBOX=(color,cols)=>({border:'2px solid '+color,borderRadius:8,marginTop:4,background:'white',
+    boxShadow:'0 6px 18px rgba(0,0,0,0.18)',padding:6,display:'grid',gap:4,
+    gridTemplateColumns:'repeat('+cols+',minmax(0,1fr))'});
+  const POPIT=(sel,color,bg,opt)=>({padding:(opt&&opt.left)?'8px 10px':'8px 6px',cursor:'pointer',fontSize:13,
+    textAlign:(opt&&opt.left)?'left':'center',whiteSpace:'nowrap',borderRadius:6,boxSizing:'border-box',
+    border:'1px solid '+(sel?color:'#e5e7eb'),background:sel?bg:((opt&&opt.tint)||'white'),
+    fontWeight:sel?800:500,color:sel?color:((opt&&opt.fg)||'#374151')});
   // ★編集中の欄が**カードの半分より下**に来たら、真ん中へ戻す（B案・2026-10-15 ユーザー選択）。
   //   上半分にいる間は動かさない＝必要な時しか画面が動かない。
   //   以前は ↓キーで送った時だけ scrollIntoView していたので、**Tab・クリックでは一度もスクロールしなかった**
@@ -7239,6 +8388,7 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
     const next=ORDER[i+1]; setKbField(next);
     if(next==='slot'){slotRef.current?.focus();centerField(slotRef.current);}
     else if(next==='name'){nameRef.current?.focus();centerField(nameRef.current);}
+    else if(next==='user'){userRef.current?.focus();centerField(userRef.current);}
     else if(next==='staff'){staffRef.current?.focus();centerField(staffRef.current);}
     else if(next==='car'){carRef.current?.focus();centerField(carRef.current);}
     else if(next==='carno'){carNoRef.current?.focus();centerField(carNoRef.current);}
@@ -7256,6 +8406,7 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
     const prev=ORDER[i-1]; setKbField(prev);
     if(prev==='slot'){slotRef.current?.focus();centerField(slotRef.current);}
     else if(prev==='name'){nameRef.current?.focus();centerField(nameRef.current);}
+    else if(prev==='user'){userRef.current?.focus();centerField(userRef.current);}
     else if(prev==='staff'){staffRef.current?.focus();centerField(staffRef.current);}
     else if(prev==='car'){carRef.current?.focus();centerField(carRef.current);}
     else if(prev==='carno'){carNoRef.current?.focus();centerField(carNoRef.current);}
@@ -7402,6 +8553,14 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
     return window.confirm(`⚠ ${_nm}の期間がスケジュールと一致していません。\n\nスケジュール（入庫日→納車日）：${_mmFmt(mm.schFrom)}〜${_mmFmt(mm.schTo)}（${_sd}日間）\n${_nm}の貸出期間　　　　　　：${_mmFmt(mm.loanFrom)}〜${_mmFmt(mm.loanTo)}（${_ld}日間）\n\nこのまま保存しますか？\n（合わせるには「変更」で期間を選び直し、不要なら外してください）`);
   };
 
+  // ★日にちを変えた時だけ moved に1行足す（新規は足さない＝最初から その日の予約なので）
+  const moveStamp=()=>{
+    if(isNew)return {};
+    const to=String(localTargetDkRef.current||modalDk||'');
+    const from=String(originalDkRef.current||'');
+    if(!from||!to||from===to)return {};
+    return {moved:hubPushMoved(form.moved,from,to,(currentUser&&currentUser.name)||'')};
+  };
   const handleSave=()=>{
     if(!form.name){alert('氏名を入力してください');nameRef.current?.focus();return;}
     if(!form.carType){alert('車種を入力してください');carRef.current?.focus();return;}
@@ -7413,7 +8572,15 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
       if(!form.work){alert('作業内容を選択してください');workRef.current?.focus();return;}
     }
     if(!confirmLoanerMismatch())return; // ズレたまま保存の最終確認でキャンセル→中断
-    onSave({...withDeliveryNote(form, localTargetDkRef.current||modalDk, isInsp), store:mvStore, _targetDk: localTargetDkRef.current||'', _originalDk: originalDkRef.current||''});
+    // ★新規の時だけ「いつ・誰が入れたか」を残す（2026-10-29 整備からの依頼）。
+    //   編集では上書きしない＝最初に入れた時刻が残る。
+    //   id は保存のたびに変わるので使えない（マッハの特例と同じ理由）。
+    //   ★at/by ではなく rcvAt/rcvBy。at は整備のマッハ特例に使う別物（上の注意書きを読むこと）。
+    const stampNew = isNew ? {rcvAt:Date.now(), rcvBy:(currentUser&&currentUser.name)||''} : {};
+    // ★日にちを変えた時は、その記録も残す（2026-10-29 ユーザー指示）。
+    //   どの日からどの日へ・いつ・誰が。予約カードで見られる。
+    const stampMove = moveStamp();
+    onSave({...withDeliveryNote(form, localTargetDkRef.current||modalDk, isInsp), ...stampNew, ...stampMove, store:mvStore, _targetDk: localTargetDkRef.current||'', _originalDk: originalDkRef.current||''});
   };
   // 顧客リストからの仮予約/本予約ボタン用
   const handleSaveAs=(status)=>{
@@ -7426,10 +8593,15 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
     // 本予約時のみ代車期間のズレを確認（仮予約は代車を確定しないためスキップ）
     if(status==='confirmed'&&!confirmLoanerMismatch())return;
     // 仮予約はモーダルを閉じない（_keepOpen フラグで制御）
-    onSave({...withDeliveryNote(form, localTargetDkRef.current||modalDk, isInsp), store:mvStore, bookingStatus:status, _keepOpen: status==='provisional'});
+    const stampNew2 = isNew ? {rcvAt:Date.now(), rcvBy:(currentUser&&currentUser.name)||''} : {};
+    onSave({...withDeliveryNote(form, localTargetDkRef.current||modalDk, isInsp), ...stampNew2, ...moveStamp(), store:mvStore, bookingStatus:status, _keepOpen: status==='provisional'});
   };
   const handleDelete=()=>{onDelete();};
-  const handleStaffBlur=()=>{const r=resolveStaff(staffInput);setStaffInput(r);setForm(p=>({...p,staff:r}));};
+  // ★担当の名簿は【Firestoreの名簿（{store}-staff-v2）】だけを見ること。
+  //   静的な STAFF を使うと、名簿から外した人がいつまでも出る（2026-10-29 にスマホで起きた不具合と同じ）。
+  //   staffHere … 表示中の店の人（ポップに出す）／staffAll … 両店ぶん（番号→名前に直す時だけ）
+  const staffPkList=(staffHere||[]).filter(x=>x&&x.name);
+  const handleStaffBlur=()=>{const r=resolveStaff(staffInput,staffAll);setStaffInput(r);setForm(p=>({...p,staff:r}));};
   const ke=(e,ref)=>{if(e.key==='Enter'){e.preventDefault();ref?.current?.focus();}};
   
   // 十字キーによるカーソル移動
@@ -7604,14 +8776,13 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                 <span style={{fontSize:10,color:'#6b7280'}}>{showSlotPk?'▲':'▼'}</span>
               </div>
               {showSlotPk&&(
-                <div style={{border:'2px solid #0891b2',borderRadius:8,marginTop:4,maxHeight:200,overflowY:'auto',background:'white',boxShadow:'0 4px 12px rgba(0,0,0,0.15)'}}>
+                <div data-popgrid="slot" style={POPBOX('#0891b2',4)}>
                   {SCHED_SLOTS.map(v=>{
                     const sel=getBaseSlot(form._slot||timeSlot||'')===v;
                     return(
                       <div key={v} data-slotid={v}
                         onMouseDown={e=>{e.preventDefault();setForm(p=>({...p,_slot:v}));setShowSlotPk(false);goNext('slot');}}
-                        style={{padding:'8px 16px',cursor:'pointer',fontSize:14,fontWeight:sel?800:400,
-                          background:sel?'#e0f2fe':'white',color:sel?'#0891b2':'#374151'}}>
+                        style={POPIT(sel,'#0891b2','#e0f2fe',isSpecialSlot(v)?{tint:'#faf5ff',fg:'#9333ea'}:null)}>
                         {specialSlotLabel(v)}
                       </div>
                     );
@@ -7621,34 +8792,93 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
             </div>
             );
           })()}
-          {/* 氏名 */}
+          {/* 氏名（車検は「来店者氏名」と「車検証の使用者」の2つに割る・2026-10-29 整備からの依頼）
+              ★陸運局へ出す時、車検証の使用者と来店した人の名前が違うと不都合があるため、
+                両方を別々に持ち、ダッシュボードの「車検 使用者の確認」で突き合わせる。
+              ★左右の入力欄を同じ行にそろえるため、見出しの行は左右とも同じ高さ(22px)にすること。
+                右だけ「同じ」ボタンがあると背が高くなり、入力欄が1段ずれて見える（モックで実測して決めた）。
+              ★整備のカードは今までどおり氏名1つ（車検証の話なので使用者は持たない）。 */}
+          {isInsp ? (
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{...LBL,marginBottom:5,height:22,display:'flex',alignItems:'center'}}>来店者氏名 *</div>
+              {/* ★「様」は【見えるだけ】。入力した字（form.name）には入らない（2026-10-30 ユーザー指示）。
+                  保存する名前に入れると、顧客リストとの突き合わせ・検索・代車の紐付けが全部ずれる。 */}
+              <div style={{position:'relative'}}>
+                <input ref={nameRef} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
+                  onFocus={()=>setKbField('name')} onBlur={()=>setKbField('')}
+                  onKeyDown={e=>onKbNav(e,'name')} placeholder="お客様名" style={{...INP,...KB('name'),paddingRight:30}}/>
+                {form.name&&!SAMA_RE.test(String(form.name).trim())&&(
+                  <span data-namesama="1" style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',
+                    fontSize:13,fontWeight:700,color:'#64748b',pointerEvents:'none'}}>様</span>)}
+              </div>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{...LBL,marginBottom:5,height:22,display:'flex',alignItems:'center',gap:8}}>
+                <span>車検証の使用者</span>
+                <button type="button" data-userSame="1" onClick={()=>setForm(p=>({...p,user:p.name||''}))}
+                  style={{fontSize:11,fontWeight:800,color:'#1d4ed8',background:'#eff6ff',border:'1.5px solid #bfdbfe',borderRadius:7,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>同じ</button>
+              </div>
+              <input ref={userRef} data-userfld="1" value={form.user||''} onChange={e=>setForm({...form,user:e.target.value})}
+                onFocus={()=>setKbField('user')} onBlur={()=>setKbField('')}
+                onKeyDown={e=>onKbNav(e,'user')} placeholder="同じなら「同じ」を押す" style={{...INP,...KB('user')}}/>
+            </div>
+          </div>
+          ) : (
           <div>
             <label style={LBL}>氏名 *</label>
-            <input ref={nameRef} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
-              onFocus={()=>setKbField('name')} onBlur={()=>setKbField('')}
-              onKeyDown={e=>onKbNav(e,'name')} placeholder="お客様名" style={{...INP,...KB('name')}}/>
+            <div style={{position:'relative'}}>
+              <input ref={nameRef} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
+                onFocus={()=>setKbField('name')} onBlur={()=>setKbField('')}
+                onKeyDown={e=>onKbNav(e,'name')} placeholder="お客様名" style={{...INP,...KB('name'),paddingRight:30}}/>
+              {form.name&&!SAMA_RE.test(String(form.name).trim())&&(
+                <span data-namesama="1" style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',
+                  fontSize:13,fontWeight:700,color:'#64748b',pointerEvents:'none'}}>様</span>)}
+            </div>
           </div>
+          )}
           {/* 担当 */}
           <div>
-            <label style={LBL}>担当 <span style={{fontWeight:400,color:'#9ca3af',fontSize:10}}>番号を打って Enter で名前に変わります・ダブルクリックで一覧</span></label>
+            {/* ★欄を押すと、その店のスタッフがポップで出る（2026-10-30 ユーザー指示）。
+                予約を受けた本人が入力できず、ほかのスタッフが代わりに入れる時に使う。
+                ・出すのは【表示中の店】の人だけ（本店の画面なら本店／三田店の画面なら三田店）。
+                ・打ち込みは今までどおり。番号→Enter で名前に変わるのも残す。
+                ・キーボードで送られてきた時（Tab・↓）には開かない。開くのは【押した時】だけ。
+                  focus で開くと、キーボードで流している最中に欄の下が伸びて画面が動く。 */}
+            <label style={LBL}>担当 <span style={{fontWeight:400,color:'#9ca3af',fontSize:10}}>押すと一覧・番号を打って Enter でも名前に変わります</span></label>
             <input ref={staffRef} value={staffInput} onChange={e=>setStaffInput(e.target.value)}
               onFocus={()=>setKbField('staff')}
-              onBlur={()=>{handleStaffBlur();setKbField('');}}
-              onDoubleClick={()=>setShowStaff(p=>!p)}
+              onBlur={()=>{handleStaffBlur();setKbField('');setTimeout(()=>setShowStaff(false),150);}}
+              onClick={()=>setShowStaff(true)}
               onKeyDown={e=>{
+                if(e.key==='Escape'&&showStaff){e.preventDefault();setShowStaff(false);return;}
                 if(e.key==='Enter'||e.key==='ArrowDown'){
                   e.preventDefault();
-                  const r=resolveStaff(staffInput);
+                  const r=resolveStaff(staffInput,staffAll);
                   // 番号を打った1回目の Enter は、その場で担当者名に変えるだけ（欄から出ない）
-                  if(e.key==='Enter'&&r&&r!==staffInput){ setStaffInput(r); setForm(p=>({...p,staff:r})); return; }
-                  handleStaffBlur(); goNext('staff');
+                  if(e.key==='Enter'&&r&&r!==staffInput){ setStaffInput(r); setForm(p=>({...p,staff:r})); setShowStaff(false); return; }
+                  setShowStaff(false); handleStaffBlur(); goNext('staff');
                 }
-                else if(e.key==='ArrowUp'){e.preventDefault();handleStaffBlur();goPrev('staff');}
+                else if(e.key==='ArrowUp'){e.preventDefault();setShowStaff(false);handleStaffBlur();goPrev('staff');}
               }}
               autoComplete="off" placeholder="担当者名 or 番号" style={{...INP,...KB('staff')}}/>
-            {showStaff&&<div style={{display:'flex',gap:4,marginTop:5,flexWrap:'wrap'}}>
-              {STAFF.map(s=><button key={s.id} onClick={()=>{setStaffInput(s.name);setForm(p=>({...p,staff:s.name}));setShowStaff(false);carRef.current?.focus();}} style={{padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #e5e7eb',cursor:'pointer',background:form.staff===s.name?'#c2410c':'white',color:form.staff===s.name?'white':'#374151'}}>{s.id}.{s.name}</button>)}
-            </div>}
+            {showStaff&&(staffPkList.length
+              ?<div data-popgrid="staff" style={POPBOX('#0891b2',3)}>
+                  {staffPkList.map(sf=>(
+                    <div key={sf.uid||sf.name} data-staffid={sf.name}
+                      onMouseDown={e=>{e.preventDefault();setStaffInput(sf.name);setForm(p=>({...p,staff:sf.name}));setShowStaff(false);
+                        // ★次の欄へ移るのは【一拍おいてから】。その場で focus すると、
+                        //   担当の欄の blur が先に走り、まだ書き換わっていない古い名前に戻る（実測）。
+                        setTimeout(()=>{try{carRef.current&&carRef.current.focus();}catch(x){}},0);}}
+                      style={POPIT(form.staff===sf.name,'#0891b2','#e0f2fe')}>
+                      {sf.myNumber!=null&&sf.myNumber!==''?sf.myNumber+'. ':''}{sf.name}
+                    </div>
+                  ))}
+                </div>
+              :<div data-popgrid="staff" data-staffnone="1" style={{...POPBOX('#0891b2',1),padding:'10px 12px',
+                  fontSize:12,color:'#6b7280',textAlign:'center'}}>
+                  この店の名簿がまだ読めていません（打ち込んでください）
+                </div>)}
           </div>
           {/* 車種＋ナンバー4桁（2026-09-30 ユーザー指示）。
               ナンバーは顧客リストの「No.」列そのもの。リスト・検索から予約した人は自動で入る。 */}
@@ -7717,14 +8947,11 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                 <span style={{fontSize:10,color:'#6b7280'}}>{showWkPk?'▲':'▼'}</span>
               </div>
               {showWkPk&&(
-                <div style={{border:'2px solid #0891b2',borderRadius:8,marginTop:4,maxHeight:180,overflowY:'auto',background:'white',boxShadow:'0 4px 12px rgba(0,0,0,0.15)'}}>
+                <div data-popgrid="work" style={POPBOX('#0891b2',2)}>
                   {WORKS.map((w,i)=>(
                     <div key={i} data-wkid={w.id}
                       onMouseDown={e=>{e.preventDefault();setForm(p=>({...p,work:w.id}));setShowWkPk(false);setKbField('shimi');}}
-                      style={{padding:'8px 12px',cursor:'pointer',fontSize:13,
-                        background:form.work===w.id?'#e0f2fe':'white',
-                        fontWeight:form.work===w.id?700:400,
-                        borderLeft:form.work===w.id?'3px solid #0891b2':'3px solid transparent'}}>
+                      style={POPIT(form.work===w.id,'#0891b2','#e0f2fe',{left:true})}>
                       {w.id} {w.name}
                     </div>
                   ))}
@@ -7828,14 +9055,11 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                 <span style={{fontSize:10,color:'#6b7280'}}>{showShPk?'▲':'▼'}</span>
               </div>
               {showShPk&&(
-                <div style={{border:'2px solid #0891b2',borderRadius:8,marginTop:4,maxHeight:160,overflowY:'auto',background:'white',boxShadow:'0 4px 12px rgba(0,0,0,0.15)'}}>
+                <div data-popgrid="shimi" style={POPBOX('#0891b2',2)}>
                   {SHIMIS.map((s,i)=>(
-                    <div key={i}
+                    <div key={i} data-shid={s.id}
                       onMouseDown={e=>{e.preventDefault();setForm(p=>({...p,shimi:s.id}));setShowShPk(false);contRef.current?.focus();setKbField('note');}}
-                      style={{padding:'8px 12px',cursor:'pointer',fontSize:13,
-                        background:form.shimi===s.id?'#e0f2fe':'white',
-                        fontWeight:form.shimi===s.id?700:400,
-                        borderLeft:form.shimi===s.id?'3px solid #0891b2':'3px solid transparent'}}>
+                      style={POPIT(form.shimi===s.id,'#0891b2','#e0f2fe',{left:true})}>
                       {s.name}
                     </div>
                   ))}
@@ -7847,7 +9071,7 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
           {isInsp&&(
             <div>
               <label style={LBL}>入庫時間 <span style={{fontWeight:400,color:'#9ca3af',fontSize:10}}>900→9:00</span></label>
-              <div ref={timeRef} tabIndex={0}
+              <div ref={timeRef} tabIndex={0} data-insptime="1"
                 onFocus={()=>setKbField('time')} onBlur={()=>{setKbField('');setTimeout(()=>setShowTmPk(false),150);}}
                 onKeyDown={onTimeKb} onClick={()=>setShowTmPk(p=>!p)}
                 style={{...INP,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',...KB('time')}}>
@@ -7857,14 +9081,11 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                 <span style={{fontSize:10,color:'#6b7280'}}>{showTmPk?'▲':'▼'}</span>
               </div>
               {showTmPk&&(
-                <div style={{border:'2px solid #0891b2',borderRadius:8,marginTop:4,maxHeight:200,overflowY:'auto',background:'white',boxShadow:'0 4px 12px rgba(0,0,0,0.15)'}}>
+                <div data-popgrid="time" style={POPBOX('#0891b2',4)}>
                   {TIME_VALS.map(v=>(
                     <div key={v} data-tmid={v}
                       onMouseDown={e=>{e.preventDefault();setForm(p=>({...p,time:v}));setShowTmPk(false);goNext('time');}}
-                      style={{padding:'8px 16px',cursor:'pointer',fontSize:14,fontWeight:form.time===v?800:400,
-                        background:form.time===v?'#e0f2fe':(isSpecialSlot(v)?'#faf5ff':'white'),
-                        color:form.time===v?'#0891b2':(isSpecialSlot(v)?'#9333ea':'#374151'),
-                        borderLeft:form.time===v?'4px solid #0891b2':'4px solid transparent'}}>
+                      style={POPIT(form.time===v,'#0891b2','#e0f2fe',isSpecialSlot(v)?{tint:'#faf5ff',fg:'#9333ea'}:null)}>
                       {specialSlotLabel(v)}
                     </div>
                   ))}
@@ -7938,14 +9159,11 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                   <span style={{fontSize:10,color:'#6b7280'}}>{showDelivTmPk?'▲':'▼'}</span>
                 </div>
                 {showDelivTmPk&&(
-                  <div style={{border:'2px solid #047857',borderRadius:8,marginTop:4,maxHeight:200,overflowY:'auto',background:'white',boxShadow:'0 4px 12px rgba(0,0,0,0.15)'}}>
+                  <div data-popgrid="deliv" style={POPBOX('#047857',4)}>
                     {TIME_VALS.map(v=>{const sel=(form.deliveryTime||'未定')===v;return(
-                      <div key={v}
+                      <div key={v} data-dtmid={v}
                         onMouseDown={e=>{e.preventDefault();setForm(p=>({...p,deliveryTime:v}));setShowDelivTmPk(false);}}
-                        style={{padding:'8px 16px',cursor:'pointer',fontSize:14,fontWeight:sel?800:400,
-                          background:sel?'#ecfdf5':(isSpecialSlot(v)?'#faf5ff':'white'),
-                          color:sel?'#047857':(isSpecialSlot(v)?'#9333ea':'#374151'),
-                          borderLeft:sel?'4px solid #047857':'4px solid transparent'}}>
+                        style={POPIT(sel,'#047857','#ecfdf5',isSpecialSlot(v)?{tint:'#faf5ff',fg:'#9333ea'}:null)}>
                         {deliverySlotLabel(v)}
                       </div>
                     );})}
@@ -8032,6 +9250,22 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
               onKeyDown={e=>{if(e.key==='ArrowUp'&&e.target.selectionStart===0){e.preventDefault();goPrev('note');}}}              
               rows={3} lang="ja" placeholder="メモや特記事項（クイックバッジはマウスで選択）" style={{...INP,resize:'vertical',minHeight:65,...KB('note')}}/>
           </div>
+          {/* ★この予約の受け付け（2026-10-29 ユーザー指示）。新規の時は出さない。
+              入れた日時・入れた人と、日にちを変えた記録。1日表示の行（BLOCK-C）は触れないので、
+              「予約を開けば必ず見られる」ここに出す。週表ではお名前をなぞっても出る。 */}
+          {!isNew&&(
+            <div data-bkentry="1" style={{margin:'0 0 12px',padding:'8px 11px',background:'#f8fafc',
+              border:'1px solid #e5e7eb',borderRadius:8,fontSize:11.5,color:'#64748b',lineHeight:1.75}}>
+              {/* ★form ではなく initialData から出すこと。
+                  予約カードは「同じ予約を開き直した時はフォームを作り直さない」決まりがあり
+                  （代車ピッカーから戻った時に書きかけを消さないため）、日にちを変えた直後に
+                  開き直すと form が古いままで、日にち変更の行が出ない（2026-10-29 の検査で判明）。
+                  ここは読むだけの欄なので、いつでも今のデータを出してよい。 */}
+              {hubEntryLines(initialData||form).map((x,i)=>(
+                <div key={i} style={i===0?{fontWeight:700,color:'#475569'}:{color:'#9a3412'}}>{x}</div>
+              ))}
+            </div>
+          )}
           {/* ボタン */}
           <div style={{display:'flex',flexDirection:'column',gap:8,paddingBottom:28}}>
             {(!isInsp||!fromCustList)&&(
@@ -8063,6 +9297,46 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
 });
 
 // ============================================
+
+// ── 1日表示でお名前をなぞると「いつ予約を入れたか」が出る（2026-10-30 ユーザー指示）─────
+//   車検も整備も、予約が入っている行すべてに付ける。週表のお名前と同じ動き。
+//   ★言葉は【週表・予約カードと同じ hubEntryLines】を使うこと。別々に書くと食い違う。
+//   ★BLOCK-C の行で触るのは【出す言葉・見た目だけ】。判定・並び・保存には手を出さない。
+//   見た目は NoteCell の吹き出しにそろえた（position:fixed・角丸・pointerEvents:none）。
+//     fixed にする理由：行は横に狭く overflow で切られるので、中に置くと吹き出しが欠ける。
+const EntryName=({row,style,children})=>{
+  const [rect,setRect]=useState(null);
+  const lines=hubEntryLines(row);
+  const W=Math.max(240,Math.min(340,typeof window!=='undefined'?window.innerWidth-24:320));
+  const pop=rect?(()=>{
+    const left=Math.max(8,Math.min(rect.left,(window.innerWidth||1200)-W-8));
+    const below=rect.bottom+4, fits=below+150<=(window.innerHeight||800)-8;
+    return fits?{position:'fixed',left,top:below}
+               :{position:'fixed',left,bottom:Math.max(8,(window.innerHeight||800)-rect.top+4)};
+  })():null;
+  return (
+    <span data-entrynm="1"
+      onMouseEnter={e=>{try{const b=e.currentTarget.getBoundingClientRect();
+        setRect({left:b.left,top:b.top,bottom:b.bottom});}catch(x){}}}
+      onMouseLeave={()=>setRect(null)}
+      style={{...(style||{}),cursor:'help'}}>
+      {children}
+      {rect&&(
+        <span data-entrytip="1" style={{...pop,zIndex:9999,width:W,background:'white',
+          border:'2px solid #0891b2',borderRadius:10,boxShadow:'0 12px 32px rgba(0,0,0,0.22)',
+          padding:'9px 11px',pointerEvents:'none',display:'block',textAlign:'left',
+          whiteSpace:'normal',wordBreak:'break-word',boxSizing:'border-box'}}>
+          <span style={{display:'block',fontSize:10.5,fontWeight:800,color:'#0e7490',
+            marginBottom:5,letterSpacing:'.04em'}}>🕘 この予約の受け付け</span>
+          {lines.map((x,i)=>(
+            <span key={i} style={{display:'block',fontSize:11.5,lineHeight:1.75,
+              fontWeight:i===0?700:400,color:i===0?'#475569':'#9a3412'}}>{x}</span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+};
 
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║  BLOCK-C: コアロジック・行表示                                  ║
@@ -8148,25 +9422,25 @@ const InspRow=memo(({row,idx,dispNo,dk,onOpenModal,lockInfo,loanerRes,loanerResH
       <td style={{...TD,cursor:blocked||isCancelled?'not-allowed':'pointer'}} onClick={()=>{if(!blocked&&!isCancelled)onOpenModal('insp',dk,idx,null,false);}}>
         {isOverLimit&&!isEmpty
          ?<div style={{padding:'3px 5px'}}>
-            {row.name&&<div style={{fontWeight:600,color:'#6b7280',opacity:0.7}}>{row.name}</div>}
+            {row.name&&<div style={{fontWeight:600,color:'#6b7280',opacity:0.7}}>{sama(row.name)}</div>}
             <div style={{fontSize:10,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:3}}>🚫 台数制限超過・予約不可</div>
           </div>
          :isCancelled?<div style={{padding:'3px 5px'}}>
-            <div style={{fontWeight:600,color:'#6b7280',textDecoration:'line-through'}}>{row.name}</div>
+            <div style={{fontWeight:600,color:'#6b7280',textDecoration:'line-through'}}>{sama(row.name)}</div>
             <div style={{fontSize:10,color:'#dc2626',fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
               ✗ キャンセル済
-              <button onClick={e=>{e.stopPropagation();if(confirm(`「${row.name}」の予約を削除しますか？`))onOpenModal('insp',dk,idx,null,'delete');}}
+              <button onClick={e=>{e.stopPropagation();if(confirm(`「${sama(row.name)}」の予約を削除しますか？`))onOpenModal('insp',dk,idx,null,'delete');}}
                 style={{padding:'1px 6px',background:'#dc2626',color:'white',border:'none',borderRadius:4,fontSize:9,cursor:'pointer',fontWeight:700}}>
                 🗑
               </button>
             </div>
           </div>
-         :locked?<div style={{padding:'3px 5px'}}>{row.name&&<div style={{fontWeight:600}}>{row.name}</div>}<LockBadge lockedBy={lockInfo.lockedBy} isNew={!row.name}/></div>
+         :locked?<div style={{padding:'3px 5px'}}>{row.name&&<div style={{fontWeight:600}}>{sama(row.name)}</div>}<LockBadge lockedBy={lockInfo.lockedBy} isNew={!row.name}/></div>
          :limitBlocked?<div style={{color:'#dc2626',fontSize:11,padding:'5px 7px',fontWeight:800,display:'flex',alignItems:'center',gap:4}}><span style={{fontSize:12}}>🚫</span>予約不可（台数制限 {limitFull}台に達しています）</div>
          :isEmpty?<div style={{color:'#475569',fontSize:11,padding:'5px 7px',fontStyle:'italic',fontWeight:600,display:'flex',alignItems:'center',gap:4}}><span style={{width:18,height:18,border:'2px dashed #94a3b8',borderRadius:3,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'#475569',fontWeight:700}}>+</span>クリックして追加</div>
          :<div style={{padding:'3px 5px'}}>
               <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-                <span style={{fontWeight:700,color:pending?'#6b7280':'#7c2d12',whiteSpace:'nowrap'}}>{row.name}</span>
+                <EntryName row={row} style={{fontWeight:700,color:pending?'#6b7280':'#7c2d12',whiteSpace:'nowrap'}}>{sama(row.name)}</EntryName>
                 {row.store&&<span style={{padding:'1px 6px',borderRadius:20,fontSize:10,fontWeight:800,background:row.store==='honten'?'#2563eb':'#dc2626',color:'white',flexShrink:0,whiteSpace:'nowrap'}}>
                   {row.store==='honten'?'本店':'三田店'}
                 </span>}
@@ -8348,13 +9622,13 @@ const SchedRow=memo(({row,slot,baseSlot,isFirstSub,dk,onOpenModal,lockInfo,loane
               : <span style={{fontWeight:600,color:'#38bdf8'}}>{isSpecialSlot(baseSlot)?specialSlotLabel(baseSlot):getBaseSlot(slot)}</span>)}
       </td>
       <td style={TD}>
-        {locked?<div style={{padding:'3px 5px',borderLeft:'5px solid #f59e0b',marginLeft:-8,paddingLeft:8}}>{row.name&&<div style={{fontWeight:600}}>{row.name}</div>}<LockBadge lockedBy={lockInfo.lockedBy} isNew={!row.name}/></div>
+        {locked?<div style={{padding:'3px 5px',borderLeft:'5px solid #f59e0b',marginLeft:-8,paddingLeft:8}}>{row.name&&<div style={{fontWeight:600}}>{sama(row.name)}</div>}<LockBadge lockedBy={lockInfo.lockedBy} isNew={!row.name}/></div>
          :isEmpty?<div style={{color:'#475569',fontSize:11,padding:'5px 7px',fontStyle:'italic',fontWeight:600,display:'flex',alignItems:'center',gap:4}}><span style={{width:18,height:18,border:'2px dashed #94a3b8',borderRadius:3,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'#475569',fontWeight:700}}>+</span>クリックして追加
            {/* ★マッハ車検による自動の入庫制限（2026-10-05）。網掛けの中に名前だけ出す */}
            {machCov&&<span style={{marginLeft:4,fontSize:11,fontWeight:800,color:'#b91c1c',fontStyle:'normal',whiteSpace:'nowrap'}}>マッハ車検</span>}</div>
          :<div style={{padding:'3px 5px'}}>
               <div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'nowrap'}}>
-                <span style={{fontWeight:600,color:'#1e293b',whiteSpace:'nowrap'}}>{row.name}</span>
+                <EntryName row={row} style={{fontWeight:600,color:'#1e293b',whiteSpace:'nowrap'}}>{sama(row.name)}</EntryName>
                 {/* ★店舗バッジは出さない（2026-10-17 ユーザー指示）。整備の予定は店ごとのデータなので、
                     見ている店と必ず同じ＝情報がない。食い違っている時だけ出す（押せない理由になるため）。 */}
                 {otherStore&&<span style={{padding:'1px 6px',borderRadius:20,fontSize:10,fontWeight:800,background:row.store==='honten'?'#2563eb':'#dc2626',color:'white',flexShrink:0,whiteSpace:'nowrap'}}>
@@ -9088,7 +10362,11 @@ const VEH_STORES=[{id:'honten',label:'本店'},{id:'sanda',label:'三田店'}];
 //   黄＝期日の3か月前から（1か月点検は登録より前になるので出ない）
 //   オレンジ＝期日の1か月前から／赤＝期日を過ぎたら
 //   12か月点検は黄色を出さず、1か月前からオレンジ
-const VEH_ALERT_DEF={ y1:0, o1:30, y6:90, o6:30, y12:0, o12:30, yCar:90 };
+// ★rCar＝車検満了を【何日過ぎたら赤にするか】。0＝満了日になったらその日から赤。
+//   これを決めていなかったので vehExpiryState の `left<=-c.rCar` が常に false になり、
+//   **車検が切れていても黄色のまま**だった（2026-10-29・ダッシュボードの！の検査で発覚）。
+//   画面の説明には前から「赤＝期日を過ぎたら」と書いてあり、赤になるのが元々の決まり。
+const VEH_ALERT_DEF={ y1:0, o1:30, y6:90, o6:30, y12:0, o12:30, yCar:90, rCar:0 };
 const vehAlertCfg=(o)=>({...VEH_ALERT_DEF,...(o&&typeof o==='object'?o:{})});
 // スズキ車か（メーカー欄が空の時は車名から推測しない＝出さない）
 const vehIsSuzuki=v=>/スズキ|SUZUKI|suzuki/.test(String(v&&v.maker||''));
@@ -10592,7 +11870,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
                         {showName&&(
                           <div style={{position:'absolute',left:3,top:'50%',transform:'translateY(-50%)',width:nameSpan*44-6,fontSize:11,color:'white',fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'clip',textShadow:'-1px -1px 1px rgba(0,0,0,.85),1px -1px 1px rgba(0,0,0,.85),-1px 1px 1px rgba(0,0,0,.85),1px 1px 1px rgba(0,0,0,.85),0 0 3px rgba(0,0,0,.9)',zIndex:2,pointerEvents:'none'}}>
                             {/* ★限定（この車でないとダメ）の予約は鍵マーク付き。最適化で動かない印 */}
-                            {st.locked&&<span style={{marginRight:2}}>🔒</span>}{shortenCorpName(st.user)}
+                            {st.locked&&<span style={{marginRight:2}}>🔒</span>}{sama(shortenCorpName(st.user))}
                           </div>
                         )}
                       </td>
@@ -10621,12 +11899,12 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
             📅 {pinnedRes.res.fm+1}/{pinnedRes.res.fd}〜{pinnedRes.res.tm+1}/{pinnedRes.res.td}
             <span style={{marginLeft:8,fontWeight:800,color:'white',background:pinnedRes.res._rental?'#059669':'#c2410c',borderRadius:20,padding:'2px 10px',fontSize:12}}>{loanDays(pinnedRes.res)}日間</span>
           </div>
-          <div style={{fontSize:12,color:'#6b7280',marginBottom:12}}>👤 {pinnedRes.res.user}</div>
+          <div style={{fontSize:12,color:'#6b7280',marginBottom:12}}>👤 {sama(pinnedRes.res.user)}</div>
           <div style={{display:'flex',gap:8}}>
             <button onClick={()=>{openEdit(pinnedRes.car,pinnedRes.res);setPinnedRes(null);}}
               style={{flex:1,padding:'8px 0',background:'#c2410c',color:'white',border:'none',borderRadius:7,fontWeight:700,fontSize:12,cursor:'pointer'}}>✎ 編集</button>
             <button onClick={()=>{
-              if(window.confirm(`「${pinnedRes.car.name}」の予約（${pinnedRes.res.fm+1}/${pinnedRes.res.fd}〜${pinnedRes.res.tm+1}/${pinnedRes.res.td} ${pinnedRes.res.user}）を削除しますか？`)){
+              if(window.confirm(`「${pinnedRes.car.name}」の予約（${pinnedRes.res.fm+1}/${pinnedRes.res.fd}〜${pinnedRes.res.tm+1}/${pinnedRes.res.td} ${sama(pinnedRes.res.user)}）を削除しますか？`)){
                 if(pinnedRes.res._rental){
                   onDeleteRentalRes(pinnedRes.car.id,pinnedRes.res.id);
                 }else{
@@ -10712,7 +11990,7 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
               </span>
               <span style={{fontSize:16,fontWeight:700,color:'#334155'}}>📅 {hoverRes.res.fm+1}/{hoverRes.res.fd} 〜 {hoverRes.res.tm+1}/{hoverRes.res.td}</span>
               <span style={{fontSize:15,fontWeight:800,color:'white',background:hoverRes.res._rental?'#059669':'#c2410c',borderRadius:20,padding:'3px 12px'}}>{loanDays(hoverRes.res)}日間</span>
-              <span style={{fontSize:18,fontWeight:800,color:'#1e293b'}}>👤 {hoverRes.res.user}</span>
+              <span style={{fontSize:18,fontWeight:800,color:'#1e293b'}}>👤 {sama(hoverRes.res.user)}</span>
               <span style={{fontSize:11,color:'#94a3b8',fontWeight:600}}>クリックで編集・削除</span>
             </div>
           ):(
@@ -11299,7 +12577,7 @@ const RestoreModal = memo(({isOpen, onClose, currentUser, inspData})=>{
                            return <div key={i} style={{border:`1px solid ${here?'#eef2f8':'#e6c98a'}`,borderRadius:9,padding:'8px 11px',display:'flex',gap:10,alignItems:'flex-start',background:here?'white':'#fffaf0'}}>
                              <div style={{fontSize:14,fontWeight:800,color:'#173da8',width:46,flexShrink:0}}>{r.time||'—'}</div>
                              <div style={{flex:1,minWidth:0}}>
-                               <div style={{fontSize:13.5,fontWeight:800}}>{r.name}</div>
+                               <div style={{fontSize:13.5,fontWeight:800}}>{sama(r.name)}</div>
                                {r.carType&&<div style={{fontSize:12,color:'#64748b'}}>{r.carType}</div>}
                                {r.loaner&&<div style={{fontSize:11.5,color:'#0e9d58',fontWeight:700,marginTop:2}}>🔑 代車：{r.loaner}</div>}
                              </div>
@@ -11772,6 +13050,15 @@ function AppInner() {
   const [desktopListS,setDesktopListS]=useShared(STOR+'desktops-sanda',[],60000);
   const [showStaffRegister,setShowStaffRegister]=useState(false);
   const [showStaffSettings,setShowStaffSettings]=useState(false);
+  // 週表示（v3.69・2026-10-21）。1日表示はそのまま、こちらは別の窓で開く
+  const [weekOpen,setWeekOpen]=useState(false);
+  // ★ダッシュボード（2026-10-29 整備からの依頼）。別ページではなく、この画面の全画面オーバーレイ。
+  //   ?dash=1 で開いた時は、最初からダッシュボードを出す（別タブで開いた時）。
+  const [dashOpen,setDashOpen]=useState(HUB_DASH_OPEN);
+  // ★週の始まり（2026-10-29 ユーザー指示）。既定は【本日から】＝本日が一番左端。
+  //   月曜はじまり（A3の紙と同じ並び）にも週表の中の1押しで戻せる。
+  const [weekFromToday,setWeekFromToday]=useState(true);
+  const [weekStart,setWeekStart]=useState(()=>weekStartMode(new Date(),true));
   // 現在の表示店舗に応じたデータ・setter
   const schedData    = vsId==='honten'?schedDataH   :schedDataS;
   const setSchedData = vsId==='honten'?setSchedDataH:setSchedDataS;
@@ -11798,6 +13085,27 @@ function AppInner() {
   const [vehicleData,  setVehicleData]  = useShared(STOR+'vehicles', []);          // 車両管理（旧版。消さずに残す）
   // ★車両管理 v2（2026-10-05）。取り込みは node fb_import_vehicles.js
   const [vehicleV2,    setVehicleV2]    = useShared(STOR+'vehicles-v2', []);
+  // ★車両管理の知らせ（2026-10-29）。ナビから車両管理のボタンを外したので、
+  //   知らせはダッシュボードのボタンの「！」とダッシュボードの中のタイルで出す。
+  //   lv 3=期日ぎれ（赤）／2=もうすぐ（オレンジ）／1=そろそろ（黄）
+  const vehAlert=useMemo(()=>{
+    const list=Array.isArray(vehicleV2)?vehicleV2:[];
+    const cfg=vehAlertCfg((list.find(x=>x&&x.id==='__cfg__')||{}).cfg);
+    const n={red:0,orange:0,yellow:0};
+    let lv=0;
+    const bump=s=>{ if(s==='red'){n.red++;lv=Math.max(lv,3);} else if(s==='orange'){n.orange++;lv=Math.max(lv,2);} else if(s==='yellow'){n.yellow++;lv=Math.max(lv,1);} };
+    list.forEach(v=>{
+      if(!v||v.id==='__cfg__'||v.archived)return;
+      vehAlertKinds(v).forEach(k=>bump(vehInspState(v,k,cfg).s));
+      bump(vehExpiryState(v,cfg).s);
+    });
+    return {...n,level:lv};
+  },[vehicleV2]);
+  // ★ダッシュボードのボタンに「！」を出すかどうか（2026-10-29 ユーザー決定）。
+  //   出すのは【赤・オレンジ＝期日ぎれ／もうすぐ】だけ。黄（3か月以内）はまだ先なので出さない。
+  //   ★「車検済みチェックの未確認」は入れないこと。毎月150台あってほぼいつも残っており、
+  //     入れると消えない札になってしまう（2026-10-29 ユーザーと確認）。
+  const dashBang=vehAlert.level>=2;
   const [showLoanerSettings, setShowLoanerSettings] = useState(false);
   const [showTireEdit,       setShowTireEdit]        = useState(false);
   const [showLocationEdit,   setShowLocationEdit]    = useState(false);
@@ -12062,6 +13370,26 @@ function AppInner() {
   const [restrTip, setRestrTip] = useState('');                    // 入庫制限バッジのホバー説明（表示中のdk）
   const [restrTipRect2, setRestrTipRect2] = useState(null);        // そのバッジの位置（画面固定で出すため・2026-10-03）
   const [inspLimits, setInspLimits] = useShared(STOR+'inspLimits', {}); // 車検台数制限 {dk: number}
+  // ★車検証の使用者を確認した印（2026-10-29 整備からの依頼）。{日付: {行の印: {by,at}}}
+  //   ★車検の予約そのものには書かない。予約の行を書き換えると、保管箱（insp-arch）へ移った
+  //     過去の予約まで触ることになり、予約を壊しかねないため。印だけを別のキーに残す。
+  //   日付ごとに分けてあるので、時点復旧の「日を指定して戻す」もそのまま使える。
+  const [usrChk, setUsrChk] = useShared(STOR+'usrchk', {});
+  const setUserChecked = useCallback((items,on)=>{
+    if(!items||!items.length)return;
+    const by=(currentUser&&currentUser.name)||'';
+    const at=Date.now();
+    setUsrChk(prev=>{
+      const c={...(prev||{})};
+      items.forEach(({dk,key})=>{
+        if(!dk||!key)return;
+        const day={...(c[dk]||{})};
+        if(on)day[key]={by,at}; else delete day[key];
+        if(Object.keys(day).length)c[dk]=day; else delete c[dk];
+      });
+      return c;
+    });
+  },[setUsrChk,currentUser]);
   // 控えの1件を送り直す。サーバー最新値に「まだ無ければ」空き行へ足す（すでに入っていれば何もしない＝二重にならない）。
   const resendInspPending=useCallback(p=>new Promise(resolve=>{
     const row=p&&p.row?{...p.row}:null;
@@ -12775,7 +14103,7 @@ function AppInner() {
   },[schedData]);
 
   // モーダルを開く（即時・非同期なし）
-  const handleOpenModal=useCallback((type,dk,idx,slot,isNew=false)=>{
+  const handleOpenModal=useCallback((type,dk,idx,slot,isNew=false,preset=null)=>{
     if(!currentUser)return;
     // 削除モード
     if(isNew==='delete'){
@@ -12821,7 +14149,7 @@ function AppInner() {
     setModalType(type);setModalDk(dk);setModalIdx(idx||0);setModalSlot(slot||'');originalModalDkRef.current=dk;originalModalDkRef.current=dk;originalModalDkRef.current=dk;originalModalDkRef.current=dk;originalModalDkRef.current=dk;originalModalDkRef.current=dk;
     setModalIsNew(isNew);
     const data=isNew
-      ?(type==='insp'?{...blankInsp(),_idx:idx||0}:{...blankSched(),_slot:slot||''})
+      ?(type==='insp'?{...blankInsp(),...(preset||{}),_idx:idx||0}:{...blankSched(),...(preset||{}),_slot:slot||''})
       :(type==='insp'?{...((inspData[dk]||[])[idx]||blankInsp()),_idx:idx||0}:{...( schedData[dk]?.[slot]||blankSched()),_slot:slot||''});
     setModalData(data);
     // 既存データにレンタカー情報があれば復元（編集時の再表示用）
@@ -14135,6 +15463,19 @@ function AppInner() {
   //   ※新しいタブをこちらから全画面にすることはブラウザの決まりでできないので、
   //     スケジュールを全画面で使っていても、リストのタブは全画面にはならない（承知の上での選択）。
   //     以前（v3.08〜v3.33）は大きさを揃えるために同じタブの中で開いていた。
+  // ★ダッシュボードを開く（2026-10-29 ユーザー指示）。
+  //   ふつうの大きさ → 別タブ（同じ名前のタブがあれば使い回す）
+  //   全画面のとき   → 同じタブの中で重ねる（顧客リストと同じ考え方。全画面が解けないように）
+  //   ポップアップを止められていたら、その場で重ねる＝開けないままにしない
+  const openDash=useCallback(()=>{
+    if(isFullscreen){ setDashOpen(true); return; }
+    let w=null;
+    try{ w=window.open(location.pathname+'?dash=1','hub-dashboard'); }catch(e){}
+    if(w){ try{ w.focus(); }catch(e){} } else { setDashOpen(true); }
+  },[isFullscreen]);
+  // 別タブで開いた時は、アドレスから印を外す（開き直すたびに出ないように）
+  useEffect(()=>{ if(!HUB_DASH_OPEN)return;
+    try{ history.replaceState(null,'',location.pathname+location.hash); }catch(e){} },[]);
   const openCustList=useCallback((find)=>{
     const q=(find&&find.name)?String(find.name):'';
     const file=(find&&find.file)?String(find.file):'';
@@ -14498,7 +15839,7 @@ function AppInner() {
               return(
                 <div key={p.pid} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 9px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8}}>
                   <div style={{flex:1,minWidth:0,fontSize:12.5}}>
-                    <b>{when}</b>　{r.name}{r.time?'　'+r.time:''}
+                    <b>{when}</b>　{sama(r.name)}{r.time?'　'+r.time:''}
                     <span style={{marginLeft:6,fontSize:11,color:'#6b7280'}}>{r.store==='sanda'?'三田店':'本店'}{r.staff?'・'+r.staff:''}</span>
                   </div>
                   <button onClick={()=>resendInspPending(p)} style={{padding:'6px 10px',background:'#dc2626',color:'white',border:'none',borderRadius:7,fontWeight:800,fontSize:11.5,cursor:'pointer',flexShrink:0}}>送り直す</button>
@@ -14521,9 +15862,12 @@ function AppInner() {
           const userStore=STORES.find(s=>s.id===(currentUser?.store?.id||'honten'))||STORES[0];
           return(
           <div style={{maxWidth:1700,margin:'0 auto',display:'flex',flexDirection:'column',gap:4}}>
-            {/* 1行目：ロゴ左 ＋ スタッフ右 */}
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <div style={{display:'flex',alignItems:'center',gap:7,fontSize:16,fontWeight:800,color:'white'}}>
+            {/* 1行目：ロゴ左 ＋ 【まん中にダッシュボード】＋ 店・名前・全画面・✕ 右
+                （2026-10-29 ユーザー指示。mock_header_v2.html で確認）
+                ★ダッシュボードは position:absolute で【画面のまん中】に置く。
+                  flex で真ん中に寄せると、左右の中身の長さで位置がずれる。 */}
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',position:'relative'}}>
+              <div style={{display:'flex',alignItems:'center',gap:7,fontSize:16,fontWeight:800,color:'white',minWidth:0,overflow:'hidden'}}>
                 <Car size={22}/> Hub a Nice day
                 <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:10,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe',cursor:'default'}}>v{APP_VERSION}</span>
                 {/* GAS接続ステータスバッジ */}
@@ -14541,59 +15885,55 @@ function AppInner() {
                 )}
 
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:5}}>
-                <div style={{position:'relative',display:'flex',alignItems:'center'}}>
-                  <button data-fs-toggle="1" onClick={toggleFullscreen} title={isFullscreen?'全画面を終了して元のウインドウに戻す':'全画面表示（ブラウザのタブ・お気に入りバーを隠して大きく表示）'}
-                    style={{display:'flex',alignItems:'center',gap:4,padding:isFullscreen?'6px 12px':'5px 10px',
-                      background:isFullscreen?'white':'rgba(255,255,255,0.18)',
-                      border:isFullscreen?'2px solid white':'2px solid rgba(255,255,255,0.55)',
-                      borderRadius:8,cursor:'pointer',fontWeight:isFullscreen?900:700,fontSize:isFullscreen?12:11,
-                      color:isFullscreen?'#c2410c':'white',whiteSpace:'nowrap',
-                      animation:fsHint?'hubFsNudge .7s ease-in-out 2':'none'}}
-                    onMouseEnter={e=>{if(!isFullscreen)e.currentTarget.style.background='rgba(255,255,255,0.32)';}}
-                    onMouseLeave={e=>{if(!isFullscreen)e.currentTarget.style.background='rgba(255,255,255,0.18)';}}>
-                    {isFullscreen?<Shrink size={14}/>:<Expand size={14}/>}{isFullscreen?'元に戻す':'全画面'}
+              {/* ★ダッシュボード：いつも画面のまん中（2026-10-29 ユーザー指示） */}
+              <button data-dashnav="1" onClick={openDash}
+                title={'ダッシュボードを開く（別タブ）'+(dashBang?String.fromCharCode(10)+'⚠ 車両管理に期日の近い点検があります':'')}
+                style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:2,
+                  display:'inline-flex',alignItems:'center',gap:6,padding:'6px 20px',borderRadius:9,
+                  background:'white',color:'#9a3412',border:'2px solid white',fontSize:13.5,fontWeight:900,
+                  cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',boxShadow:'0 2px 10px rgba(0,0,0,.22)'}}>
+                {/* ★「（別タブ）」の字は出さない（2026-10-30 ユーザー指示）。なぞると説明が出る */}
+                🏠 ダッシュボード
+                {dashBang&&(
+                  <span data-dashbang="1" style={{position:'absolute',top:-8,right:-8,width:19,height:19,
+                    borderRadius:'50%',background:'#facc15',color:'#111',border:'2px solid white',
+                    display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:900,
+                    lineHeight:1,boxShadow:'0 1px 4px rgba(0,0,0,.35)'}}>!</span>
+                )}
+              </button>
+              <div style={{display:'flex',alignItems:'center',gap:5,position:'relative',zIndex:3}}>
+                {/* ★店の切り替えはここへ（2026-10-29 ユーザー指示。ナビの段が空いたぶん表が広くなる） */}
+                {STORES.map(s=>(
+                  <button key={s.id} data-storebtn={s.id} onClick={()=>{setViewStore(s.id);setLoanerPinnedRes(null);setLoanerHoverRes(null);}}
+                    style={{padding:'6px 16px',borderRadius:8,border:`2px solid ${vsId===s.id?'#fff':'rgba(255,255,255,.5)'}`,background:vsId===s.id?'#fff':'rgba(255,255,255,.16)',color:vsId===s.id?s.color:'#fff',fontWeight:vsId===s.id?800:600,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
+                    {s.name}{vsId===s.id&&currentUser?.store?.id===s.id?' 🏠':''}
                   </button>
-                  <style>{'@keyframes hubFsNudge{0%,100%{transform:translateY(0) scale(1);box-shadow:0 0 0 0 rgba(255,255,255,.9)}20%{transform:translateY(3px) scale(1.06);box-shadow:0 0 0 6px rgba(255,255,255,.45)}40%{transform:translateY(-2px) scale(1.06)}60%{transform:translateY(2px) scale(1.04);box-shadow:0 0 0 10px rgba(255,255,255,0)}}'}</style>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:5,padding:'3px 10px',background:userStore.bg,borderRadius:8,border:`2px solid ${userStore.color}33`}}>
+                ))}
+                <div data-acct="1" style={{display:'flex',alignItems:'center',gap:5,padding:'3px 10px',background:userStore.bg,borderRadius:8,border:`2px solid ${userStore.color}33`}}>
                   <span style={{width:22,height:22,borderRadius:'50%',background:userStore.color,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:11}}>{String(currentUser?.name||'').charAt(0)}</span>
                   <span style={{fontWeight:700,color:userStore.accent,fontSize:12}}>{currentUser?.name}</span>
                   {currentUser?.badge&&<BadgeIcon badge={currentUser.badge} size={18}/>}
-                  {canRestore(currentUser)&&(
-                  <button onClick={()=>document.dispatchEvent(new CustomEvent('openStaffSettings'))} title="スタッフ管理"
-                    style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',display:'flex',alignItems:'center',padding:'1px',borderRadius:3}}
-                    onMouseEnter={e=>e.currentTarget.style.color='#c2410c'}
-                    onMouseLeave={e=>e.currentTarget.style.color='#6b7280'}>
-                    <Users size={14}/>
-                  </button>
-                  )}
-                  {canRestore(currentUser)&&(
-                  <button onClick={()=>setShowHoliday(true)} title="休業日設定"
-                    style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',display:'flex',alignItems:'center',padding:'1px',borderRadius:3}}
-                    onMouseEnter={e=>e.currentTarget.style.color='#c2410c'}
-                    onMouseLeave={e=>e.currentTarget.style.color='#6b7280'}>
-                    <Settings size={14}/>
-                  </button>
-                  )}
-                  {/* 休業日の件数バッジは廃止（意味が伝わらないため・2026-09-11）。 */}
-                  {/* データ復旧（バックアップから戻す）— 指定された4名のみ表示 */}
-                  {canRestore(currentUser)&&(
-                    <button onClick={()=>setShowRestore(true)} title="データ復旧（バックアップから戻す）"
-                      style={{display:'flex',alignItems:'center',gap:3,padding:'2px 8px',background:'#eff4ff',border:'1px solid #bcd0f7',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:10,color:'#1d4ed8'}}
-                      onMouseEnter={e=>e.currentTarget.style.background='#dbe6fb'}
-                      onMouseLeave={e=>e.currentTarget.style.background='#eff4ff'}>
-                      🕒 復旧
-                    </button>
-                  )}
-                  <button onClick={()=>{setOfflineMsg("");setOfflineOpen(true);}} title="オフライン予定表の控えを保存（ネットが止まった時に紙で使う）"
-                    style={{display:"flex",alignItems:"center",gap:3,padding:"2px 8px",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:6,cursor:"pointer",fontWeight:700,fontSize:10,color:"#047857"}}
-                    onMouseEnter={e=>e.currentTarget.style.background="#d1fae5"}
-                    onMouseLeave={e=>e.currentTarget.style.background="#ecfdf5"}>
-                    💾 控え
-                  </button>
-                  {/* 📋クリップボードコピーは廃止（戻せず一部データのみで紛らわしいため）。バックアップは自動保存＋🕒復旧に一本化。 */}
+                  {/* ★スタッフ管理・休業日設定・復旧・控え は【ダッシュボードの中】へ移した
+                      （2026-10-29 ユーザー指示。スケジュール画面をすっきりさせるため）。
+                      ここに残すのは「誰で入っているか」と ログアウト だけ。 */}
                   <button onClick={()=>{releaseLock(curLockKey);setAuthAutoOff(true);setCurrentUserPersist(null);setCurLockKey(null);setModalOpen(false);}} title="ログアウト" style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',display:'flex',alignItems:'center'}}><LogOut size={14}/></button>
+                </div>
+                {/* ★「全画面」は ✕ のすぐ左に置く（2026-10-25 ユーザー指示）。
+                    画面を広げる操作と閉じる操作を右端にまとめる */}
+                <div style={{position:'relative',display:'flex',alignItems:'center'}}>
+                  {/* ★字は出さず、となりの ✕ と同じ形の印だけにする（2026-10-30 ユーザー指示）。
+                      何のボタンかは、なぞると出る説明（title）で分かる。 */}
+                  <button data-fs-toggle="1" onClick={toggleFullscreen} title={isFullscreen?'全画面を終了して元のウインドウに戻す':'全画面表示（ブラウザのタブ・お気に入りバーを隠して大きく表示）'}
+                    style={{width:30,height:30,borderRadius:8,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',
+                      background:isFullscreen?'white':'rgba(255,255,255,0.18)',
+                      border:isFullscreen?'2px solid white':'2px solid rgba(255,255,255,0.55)',
+                      color:isFullscreen?'#c2410c':'white',cursor:'pointer',lineHeight:1,
+                      animation:fsHint?'hubFsNudge .7s ease-in-out 2':'none'}}
+                    onMouseEnter={e=>{if(!isFullscreen)e.currentTarget.style.background='rgba(255,255,255,0.32)';}}
+                    onMouseLeave={e=>{if(!isFullscreen)e.currentTarget.style.background='rgba(255,255,255,0.18)';}}>
+                    {isFullscreen?<Shrink size={16}/>:<Expand size={16}/>}
+                  </button>
+                  <style>{'@keyframes hubFsNudge{0%,100%{transform:translateY(0) scale(1);box-shadow:0 0 0 0 rgba(255,255,255,.9)}20%{transform:translateY(3px) scale(1.06);box-shadow:0 0 0 6px rgba(255,255,255,.45)}40%{transform:translateY(-2px) scale(1.06)}60%{transform:translateY(2px) scale(1.04);box-shadow:0 0 0 10px rgba(255,255,255,0)}}'}</style>
                 </div>
                 {/* ★いちばん右端の ✕（この画面を閉じる）。2026-10-07 ユーザー指示：赤・確認は出さない */}
                 <span style={{width:1,height:22,background:'rgba(255,255,255,.4)',margin:'0 3px',flexShrink:0}}/>
@@ -14625,28 +15965,19 @@ function AppInner() {
                   });
                   const ExtMark=()=>(<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,opacity:.8}}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>);
                   const today=new Date();today.setHours(0,0,0,0);
-                  // ★車両管理の知らせは「△に！」の印（数字はやめた・2026-10-05 ユーザー指示）。
-                  //   黄色のアラートがあれば黄／オレンジがあればオレンジ／赤があれば赤。3秒だけ動く。
-                  const vehCfg=vehAlertCfg(((Array.isArray(vehicleV2)?vehicleV2:[]).find(x=>x&&x.id==='__cfg__')||{}).cfg);
-                  const vehLevel=(()=>{
-                    let lv=0;
-                    (Array.isArray(vehicleV2)?vehicleV2:[]).forEach(v=>{
-                      if(!v||v.id==='__cfg__'||v.archived)return;
-                      vehAlertKinds(v).forEach(k=>{
-                        const st=vehInspState(v,k,vehCfg).s;
-                        if(st==='red')lv=Math.max(lv,3);
-                        else if(st==='orange')lv=Math.max(lv,2);
-                        else if(st==='yellow')lv=Math.max(lv,1);
-                      });
-                      const ex=vehExpiryState(v,vehCfg).s;
-                      if(ex==='red')lv=Math.max(lv,3); else if(ex==='yellow')lv=Math.max(lv,1);
-                    });
-                    return lv;
-                  })();
+                  // ★車両管理の知らせ（vehAlert）は上（App の中）で計算して、
+                  //   ダッシュボードのボタンの「！」で出すようにした（2026-10-29 ユーザー指示）。
                   return(<>
                     <button onClick={()=>setView('calendar')} {...hov(view==='calendar')}
                       style={navSty(view==='calendar',{background:'#FFFFFF',color:'#1A2550'})}>
                       <Calendar size={13}/>カレンダー
+                    </button>
+                    {/* 週間カレンダー（v3.69.2・2026-10-21 ユーザー指示：カレンダーの横に置く）。
+                        スケジュールのヘッダーの「📅 週表示」と同じものを、どの画面からでも開ける */}
+                    <button onClick={()=>{setWeekStart(weekStartMode(selDate||new Date(),weekFromToday));setWeekOpen(true);}} {...hov(false)}
+                      data-weeknav="1" title="1週間をまとめて見る"
+                      style={navSty(false,{background:'#A5E9F2',color:'#0B4A58'})}>
+                      <Calendar size={13}/>週間カレンダー
                     </button>
                     {selDate&&(
                       <button onClick={()=>setView('schedule')} {...hov(view==='schedule')}
@@ -14658,6 +15989,7 @@ function AppInner() {
                       style={navSty(view==='loaner',{background:'#FFFFFF',color:'#1A2550'})} {...hov(view==='loaner')}>
                       <Car size={13}/>代車管理
                     </button>
+                    {/* ★ダッシュボードはこの段から外し、1行目のまん中へ（2026-10-29 ユーザー指示） */}
                     <button onClick={()=>setShowFind(true)} {...hov(false)}
                       style={navSty(false,{background:'#E8492E',color:'#FFFFFF'})}>
                       <Search size={13}/>検索
@@ -14672,30 +16004,13 @@ function AppInner() {
                       style={navSty(false,{background:'#FFFFFF',color:'#1A2550'})}>
                       料金表<ExtMark/>
                     </a>
-                    <button onClick={()=>setView('vehicle')} {...hov(view==='vehicle')}
-                      style={navSty(view==='vehicle',{background:'#F8CACA',color:'#8B2E2E'})}>
-                      🔔 車両管理
-                      {vehLevel>0&&(
-                        <span title={vehLevel===3?'期日を過ぎた点検があります':vehLevel===2?'もうすぐ期日の点検があります':'そろそろ点検の時期です'}
-                          style={{position:'absolute',top:-9,right:4,fontSize:17,lineHeight:1,fontWeight:900,
-                            color:vehLevel===3?'#dc2626':vehLevel===2?'#f97316':'#eab308',
-                            textShadow:'0 0 2px rgba(255,255,255,.95),0 1px 2px rgba(0,0,0,.25)',
-                            animation:'vehMove .75s ease-in-out 4'}}>⚠</span>
-                      )}
-                    </button>
+                    {/* ★車両管理はダッシュボードの中へ移した（2026-10-29 ユーザー指示）。
+                        知らせはダッシュボードのボタンの「！」で出る。 */}
                   </>);
                 })()}
               </div>
-              <div style={{flexShrink:0,display:'flex',gap:6,alignItems:'center'}}>
-                {/* ★帯が店の色になったので（A案・2026-10-14）、選んでいる店は「白いピル＋店の色の文字」で反転させる。
-                    同じ色で塗ると帯に沈んで、どちらを見ているのか分からなくなる。 */}
-                {STORES.map(s=>(
-                  <button key={s.id} onClick={()=>{setViewStore(s.id);setLoanerPinnedRes(null);setLoanerHoverRes(null);}}
-                    style={{padding:'6px 16px',borderRadius:8,border:`2px solid ${vsId===s.id?'#fff':'rgba(255,255,255,.5)'}`,background:vsId===s.id?'#fff':'rgba(255,255,255,.16)',color:vsId===s.id?s.color:'#fff',fontWeight:vsId===s.id?800:600,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
-                    {s.name}{vsId===s.id&&currentUser?.store?.id===s.id?' 🏠':''}
-                  </button>
-                ))}
-              </div>
+              {/* ★店の切り替えは1行目へ移した（2026-10-29 ユーザー指示）。
+                  帯が店の色になっているので（A案・2026-10-14）、選んでいる店は白いピル＋店の色の文字で反転させる。 */}
             </div>
           </div>);
         })()}
@@ -14911,6 +16226,44 @@ function AppInner() {
                           <div style={{fontWeight:800,fontSize:15,marginBottom:3,color:isCl?CLOSED_FG:numCol,display:'flex',alignItems:'center',gap:3}}>
                             <span style={isToday?{flexShrink:0,...TODAY_NUM}:{flexShrink:0}}>{day}</span>
                             {isHol&&<span style={{fontSize:8,color:isCl?CLOSED_FG:'#dc2626',flexShrink:0}}>祝</span>}
+                            {/* ★日のマスの「！」（2026-10-29 ユーザー指示・A案＝日付のとなり）
+                                日のマスは 3×2 の【6コマ固定】なので、入っていても見えない予約がある。
+                                ★★【位置】と【承認】は別のもの。混ぜないこと。
+                                  ・位置 … 画面に出ないのは irows[6] 以降（並んでいる順＝配列の順）
+                                  ・承認 … 枠からあふれたかどうかは **seq（予約を入れた順）** で BLOCK-C が決める。
+                                          配列の順とは違うので、irows[6] が承認の対象とは限らない。
+                                  2026-10-29 に混ぜてしまい、10/11 が誤って黄色になった：
+                                  7台目（＝あふれた分）は みどりモータース様で承認済み、
+                                  6コマに出ていなかったのは 小畠様＝ふつうの確定予約だった。
+                                黄色＝まだ承認されていない予約がある／緑＝承認は済んでいる（どちらも黒の！）。
+                                ★6コマの見た目は変えないこと（現場が見慣れているため）。 */}
+                            {!isCl&&(()=>{
+                              const hidden=irows.slice(6);                                   // 6コマに出ていない分（位置）
+                              const pend=irows.filter(r=>r.pendingApproval);                 // まだ承認されていない分（承認）
+                              const appr=irows.filter(r=>r.approved&&!r.pendingApproval);    // あふれたが承認済みの分
+                              if(!hidden.length&&!pend.length)return null;
+                              const nmOf=r=>{const cc=COURSES.find(x=>x.id===Number(r.course));
+                                return sama(r.name)+'（'+(cc?cc.name:'コース未設定')+'）';};
+                              // ★【位置】と【承認】の両方に当てはまる人は1行にまとめる（同じ名前を2回出さない）
+                              const lines=[day+'日　'+irows.length+'台'];
+                              irows.forEach((r,i)=>{
+                                const tags=[];
+                                if(i>=6)tags.push('6コマに出ていません');
+                                if(r.pendingApproval)tags.push('⚠ まだ承認されていません');
+                                else if(r.approved)tags.push('枠からあふれた分（承認済み）');
+                                if(tags.length)lines.push('　'+nmOf(r)+'　'+tags.join('／'));
+                              });
+                              lines.push(pend.length?'承認をお願いします':(appr.length?'承認は済んでいます':'承認が要る予約はありません'));
+                              const wait=pend.length>0;
+                              return (
+                                <span data-calbang={wait?'wait':'ok'} title={lines.join(String.fromCharCode(10))}
+                                  onClick={e=>e.stopPropagation()}
+                                  style={{flexShrink:0,width:17,height:17,borderRadius:'50%',display:'inline-flex',
+                                    alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:900,color:'#111',
+                                    background:wait?'#facc15':'#22c55e',border:'2px solid #fff',
+                                    boxShadow:'0 1px 4px rgba(0,0,0,.35)',cursor:'help'}}>!</span>
+                              );
+                            })()}
                           </div>
                           {/* 休業日は6コマを描かない（営業日と見分けがつくように） */}
                           {!isCl&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:2,position:'relative'}}>
@@ -15558,6 +16911,11 @@ function AppInner() {
                     </div>
                   )}
                   <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+                    {/* 週表示（v3.69・2026-10-21）：1週間を1枚で見る。空き探し・全体を掴むための画面 */}
+                    <button onClick={()=>{setWeekStart(weekStartMode(selDate||new Date(),weekFromToday));setWeekOpen(true);}} data-weekbtn="1" title="1週間をまとめて見る"
+                      style={{display:'flex',alignItems:'center',gap:3,padding:'4px 10px',background:'#ecfeff',border:'2px solid #67e8f9',borderRadius:5,cursor:'pointer',fontSize:10,color:'#0e7490',fontWeight:700}}>
+                      📅 週表示
+                    </button>
                     <button onClick={()=>setSchedCollapsed(p=>!p)}
                       style={{display:'flex',alignItems:'center',gap:3,padding:'4px 10px',background:schedCollapsed?'#eff6ff':'#f0fdf4',border:`2px solid ${schedCollapsed?'#93c5fd':'#86efac'}`,borderRadius:5,cursor:'pointer',fontSize:10,color:schedCollapsed?'#1d4ed8':'#16a34a',fontWeight:700}}>
                       {schedCollapsed?'▼ 開く':'▲ 畳む'}
@@ -15683,7 +17041,7 @@ function AppInner() {
                                   <td style={TD}>
                                     <div style={{lineHeight:1.25}}>
                                       <span style={{fontSize:10,fontWeight:800,color:'white',background:'#ea580c',borderRadius:20,padding:'1px 7px',whiteSpace:'nowrap'}}>🚗 事前入庫</span>
-                                      <div style={{fontWeight:800,color:'#7c2d12',marginTop:2}}>{r.name}</div>
+                                      <div style={{fontWeight:800,color:'#7c2d12',marginTop:2}}>{sama(r.name)}</div>
                                     </div>
                                   </td>
                                   <td style={TD}><span style={{fontWeight:700,color:'#374151',fontSize:13}}>{r.carType||'—'}</span></td>
@@ -15726,7 +17084,7 @@ function AppInner() {
                                     title={_arr?'納車済み（クリックで解除）':'納車が終わったらクリック'}
                                     style={{...TD,width:50,maxWidth:50,cursor:'pointer',textAlign:_arr?'center':undefined,background:_arr?'#fde047':undefined,paddingLeft:6,paddingRight:3,whiteSpace:isSpecialSlot(slot)?'normal':'nowrap',lineHeight:isSpecialSlot(slot)?1.12:undefined,color:'#065f46',fontWeight:700,fontSize:isSpecialSlot(slot)?10:11,borderLeft:'3px solid #059669'}}>
                                     {_arr?<span style={{fontWeight:900,color:'#dc2626',fontSize:15,lineHeight:1}}>✓</span>:(isSpecialSlot(slot)?specialSlotLabel(slot):slot)}</td>
-                                  <td style={{...TD,fontWeight:700,color:'#064e3b',whiteSpace:'nowrap'}}>{r.name}</td>
+                                  <td style={{...TD,fontWeight:700,color:'#064e3b',whiteSpace:'nowrap'}}>{sama(r.name)}</td>
                                   <td style={TD}><span style={{fontWeight:700,color:'#374151',fontSize:13}}>{r.carType||'—'}</span></td>
                                   <td style={TD}></td>
                                   {/* ★同上：限定のときだけ 🔒、それ以外はバッジなし */}
@@ -16003,6 +17361,8 @@ function AppInner() {
         onOpenSetItemEdit={()=>setShowSetItemEdit(true)}
         allCars={currentLoaners}
         fromCustList={fromCustList}
+        staffHere={currentStaffList}
+        staffAll={allDynStaff}
         inspData={inspData}
         closedDays={closedDays}
         closedDates={closedDates}
@@ -16107,6 +17467,48 @@ function AppInner() {
         onClose={()=>setShowStaffRegister(false)}
         staffListH={dynStaffH} staffListS={dynStaffS}
         onSave={handleRegisterStaff}/>
+
+      {/* -- ダッシュボード（v3.79・2026-10-29）。読むのは予約、書くのは確認の印だけ -- */}
+      <DashboardModal
+        isOpen={dashOpen}
+        onClose={()=>setDashOpen(false)}
+        inspData={inspData}
+        usrChk={usrChk}
+        onSetChecked={setUserChecked}
+        vehAlert={vehAlert}
+        canAdmin={canRestore(currentUser)}
+        onOpenVehicle={()=>{setView('vehicle');setDashOpen(false);}}
+        onOpenStaff={()=>document.dispatchEvent(new CustomEvent('openStaffSettings'))}
+        onOpenHoliday={()=>setShowHoliday(true)}
+        onOpenRestore={()=>setShowRestore(true)}
+        onOpenOffline={()=>{setOfflineMsg('');setOfflineOpen(true);}}
+        storeName={vsStore.name}
+        headColor={`linear-gradient(135deg,${vsStore.accent},${vsStore.color})`}
+        onPickDay={(y,m,d)=>{setSelDate(new Date(y,m,d));setView('schedule');setDashOpen(false);}}/>
+
+      {/* -- 週表示（v3.69・2026-10-21）。読むだけ。保存はすべて予約カードを通る -- */}
+      <WeekScheduleModal
+        isOpen={weekOpen}
+        onClose={()=>setWeekOpen(false)}
+        weekStart={weekStart}
+        onWeek={v=>setWeekStart(p=>v===0?weekStartMode(new Date(),weekFromToday):new Date(p.getFullYear(),p.getMonth(),p.getDate()+v*7))}
+        fromToday={weekFromToday}
+        onFromToday={v=>{setWeekFromToday(v);
+          // 本日から → 本日へ移る／月曜から → いま見ている週の月曜にそろえる
+          setWeekStart(p=>v?weekStartMode(new Date(),true):weekStartOf(p||new Date()));}}
+        storeId={vsId} storeName={vsStore.name}
+        headColor={`linear-gradient(135deg,${vsStore.accent},${vsStore.color})`}
+        inspData={inspData} schedData={schedData}
+        staffList={currentStaffList}
+        dayOffData={dayOffData} paidLeaveData={paidLeaveData}
+        isClosed={isClosed}
+        restrictionOf={restrictionOf} inspLimits={inspLimits}
+        onPickDay={(y,m,d)=>{setSelDate(new Date(y,m,d));setView('schedule');setWeekOpen(false);}}
+        onOpenInsp={(dk,idx)=>handleOpenModal('insp',dk,idx,'',false)}
+        onAddInsp={(dk,idx)=>handleOpenModal('insp',dk,idx,'',true)}
+        onAddMach={(dk,idx,time)=>handleOpenModal('insp',dk,idx,'',true,{course:1,time})}
+        onOpenSched={(dk,slot)=>handleOpenModal('sched',dk,0,slot,false)}
+        onAddSched={(dk,slot)=>handleOpenModal('sched',dk,0,slot,true)}/>
 
       {/* -- スタッフ設定（編集・削除・店舗変更） -- */}
       <StaffSettingsModal

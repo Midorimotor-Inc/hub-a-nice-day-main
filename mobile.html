@@ -17,7 +17,7 @@
   // 画面復帰時と定期に自分自身をno-storeで取得し、__APP_BUILDが変わっていれば更新バナーを表示する。
   // タップ時は cache:'reload' で新HTMLをHTTPキャッシュへ焼き直してから reload するので、確実に新版になる
   // （アプリを消したりURLを打ち直す必要はない）。本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する。
-  window.__APP_BUILD='build-1792488433732';
+  window.__APP_BUILD='build-1793327262911';
   (function(){
     var RUNNING=window.__APP_BUILD, shown=false, checking=false;
     function runningVer(){
@@ -97,7 +97,7 @@ input,select,textarea{font-family:inherit;font-size:16px !important;}
 <script id="app-jsx" type="text/plain">
 const {useState,useEffect,useCallback,useMemo,useRef,memo}=React;
 // ★ バージョン管理：システム全体で1つ。変更のたびにindex_dev.htmlのAPP_VERSIONと同値で0.01上げる
-const MOBILE_VERSION='3.68';
+const MOBILE_VERSION='3.84.0';
 // ★画面の色（環境の見分け）：テスト版＝オレンジ／メイン＝青。PC（index）と同じ決まり。
 //   この4つだけを port_to_main.js が本番用に書き換えるので、色は必ずここを使うこと。
 const UI_BG='linear-gradient(160deg,#1e1b4b,#3730a3 60%,#6d28d9)';                                               // ログイン・登録・引き継ぎ画面の背景（べた塗り）
@@ -322,6 +322,15 @@ const deliverySlotLabel=(id)=>{const b=String(id).split('__')[0];return b==='未
 // 法人格（前置・後置）を落として固有名だけ返す。代車管理のセルのように幅が狭い場所だけで使う。
 // ★長い語を先に並べること（'医療法人社団' が '医療法人' より先、'一般財団法人' が '財団法人' より先）
 const CORP_TOKENS=['特定非営利活動法人','一般社団法人','一般財団法人','公益社団法人','公益財団法人','社会福祉法人','独立行政法人','医療法人社団','医療法人財団','農業協同組合','生活協同組合','有限責任事業組合','医療法人','学校法人','宗教法人','財団法人','社団法人','協同組合','株式会社','有限会社','合同会社','合資会社','合名会社','相互会社','ＮＰＯ法人','NPO法人'];
+// ── 予約のお客様のお名前は【必ず「様」を付けて出す】（2026-10-30 ユーザー指示。PC版と同じ）──
+//   ★★付けるのは【画面に出す時だけ】。保存する name には絶対に入れないこと。
+//     入れてしまうと、顧客リストとの突き合わせ・検索・控えのキー（氏名::日付）・
+//     代車の紐付け（res.user === row.name）が**全部ずれる**。
+const SAMA_RE=/(様|さま|サマ|御中|殿)[s　]*$/;
+//   ★お名前と「様」のあいだは【半マス＝半角のスペース】（2026-10-30 ユーザー決定。PC版と同じ）。
+const SAMA_GAP=' ';
+const sama=(n)=>{ const s=String(n==null?'':n).trim(); return (!s||SAMA_RE.test(s))?s:(s+SAMA_GAP+'様'); };
+
 const shortenCorpName=(name)=>{
   const orig=String(name==null?'':name).trim();
   let s=orig;
@@ -334,26 +343,64 @@ const shortenCorpName=(name)=>{
 };
 // タイムスケジュール／入庫時間の並び：午前 → 9:00〜12:00 → 未定(旧12:30の位置=昼間) → 午後 → 13:00〜18:00（PC版SCHED_SLOTSと同一）
 const SCHED_SLOTS=(()=>{const out=['午前'];for(const s of TIME_SLOTS){if(s==='12:30'){out.push('未定');continue;}if(s==='13:00')out.push('午後');out.push(s);}return out;})();
+// ★静的な名簿は【Firestoreの名簿が読めない時だけの保険】。本物の名簿は {store}-staff-v2
+//   （PCの「スタッフ設定」で足す・直す・外す）。ここに書いた名前は必ず古くなるので、
+//   画面に名前を出すときは staffOf() / staffPick() を通すこと（DEFAULT_STAFF を直接使わない）。
+//   中身は index_dev.html の DEFAULT_STAFF_HONTEN / DEFAULT_STAFF_SANDA と同じに保つ。
+//   2026-10-29 退職した宮原てるま を外した（PC版の名簿には前から居ない）
 const DEFAULT_STAFF=[
-  {uid:'h1',name:'見取大介',    myNumber:1, store:'honten'},
-  {uid:'h2',name:'岡上秀一',    myNumber:2, store:'honten'},
-  {uid:'h3',name:'竹林直行',    myNumber:3, store:'honten'},
-  {uid:'h4',name:'幸田かつのり',myNumber:4, store:'honten'},
-  {uid:'h5',name:'魚住圭',      myNumber:5, store:'honten'},
-  {uid:'h6',name:'舟田祥子',    myNumber:6, store:'honten'},
-  {uid:'h7',name:'江川京志',    myNumber:7, store:'honten'},
-  {uid:'h8',name:'ダク',        myNumber:8, store:'honten'},
-  {uid:'h9',name:'カビン',      myNumber:9, store:'honten'},
-  {uid:'s10',name:'藤原昭人',   myNumber:10,store:'sanda'},
-  {uid:'s11',name:'中井啓介',   myNumber:11,store:'sanda'},
-  {uid:'s12',name:'宮原てるま', myNumber:12,store:'sanda'},
-  {uid:'s13',name:'芦田',       myNumber:13,store:'sanda'},
-  {uid:'s14',name:'長谷川',     myNumber:14,store:'sanda'},
-  {uid:'s15',name:'石井',       myNumber:15,store:'sanda'},
-  {uid:'s16',name:'両澤ちよう', myNumber:16,store:'sanda'},
-  {uid:'s17',name:'野呂遥奈',   myNumber:17,store:'sanda'},
-  {uid:'s18',name:'河合',       myNumber:18,store:'sanda'},
+  {uid:'h0', name:'見取勇一',      myNumber:0, badge:'president', store:'sanda'},
+  {uid:'h1', name:'見取大介',      myNumber:1, badge:'inspector', store:'honten'},
+  {uid:'h2', name:'岡上秀一',      myNumber:2, badge:'inspector', store:'honten'},
+  {uid:'h3', name:'竹林直行',      myNumber:3, badge:'inspector', store:'honten'},
+  {uid:'h4', name:'幸田桂紀',      myNumber:4, badge:'mechanic',  store:'honten'},
+  {uid:'h5', name:'魚住圭',        myNumber:5, badge:'mechanic',  store:'honten'},
+  {uid:'h6', name:'舟田祥子',      myNumber:6, badge:'office',    store:'honten'},
+  {uid:'h7', name:'江川京志',      myNumber:7, badge:'bodywork',  store:'honten'},
+  {uid:'h8', name:'ダク',          myNumber:8, badge:'assistant', store:'honten'},
+  {uid:'h9', name:'カビン',        myNumber:9, badge:'assistant', store:'honten'},
+  {uid:'s10',name:'藤原昭人',      myNumber:10,badge:'sales',     store:'sanda'},
+  {uid:'s11',name:'中井啓介',      myNumber:11,badge:'sales',     store:'sanda'},
+  {uid:'s13',name:'芦田昌則',      myNumber:12,badge:'mechanic',  store:'sanda'},
+  {uid:'s14',name:'長谷川昌彦',    myNumber:13,badge:'mechanic',  store:'sanda'},
+  {uid:'s15',name:'石井光',        myNumber:14,badge:'mechanic',  store:'sanda'},
+  {uid:'s16',name:'両澤ちよう',    myNumber:15,badge:'sales',     store:'sanda'},
+  {uid:'s17',name:'野呂遥奈',      myNumber:16,badge:'sales',     store:'sanda'},
+  {uid:'s18',name:'河合よっちゃん',myNumber:17,badge:'assistant', store:'sanda'},
 ];
+// ── 名簿はPCと同じものを使う（2026-10-29）──────────────────────────────
+//   退職した人がスマホに残っていたのは、予約カードの担当者が静的名簿を見ていたため。
+//   ここから先は「Firestoreの名簿 → 最後に読めた名簿の控え → 静的名簿」の順で使う。
+//   控えを持つので、電波が無いときでも退職者が復活しない。
+const STAFF_CACHE_KEY=STOR+'staff-cache';
+let staffCacheMem=null, staffCacheRead=false;
+const staffCacheLoad=()=>{
+  if(staffCacheRead)return staffCacheMem;
+  staffCacheRead=true;
+  try{ const o=JSON.parse(localStorage.getItem(STAFF_CACHE_KEY)||'null');
+       staffCacheMem=(o&&(Array.isArray(o.h)||Array.isArray(o.s)))?o:null; }catch(e){ staffCacheMem=null; }
+  return staffCacheMem;
+};
+const staffCacheSave=(h,s)=>{
+  try{
+    const cur=staffCacheLoad()||{};
+    const next={h:(Array.isArray(h)&&h.length)?h:(cur.h||[]),
+                s:(Array.isArray(s)&&s.length)?s:(cur.s||[]),at:Date.now()};
+    staffCacheMem=next; staffCacheRead=true;
+    localStorage.setItem(STAFF_CACHE_KEY,JSON.stringify(next));
+  }catch(e){}
+};
+// その店の名簿（社長・番号0も含む生の並び）
+const staffOf=(store,h,s)=>{
+  const sid=store==='sanda'?'sanda':'honten';
+  const live=sid==='sanda'?s:h;
+  if(Array.isArray(live)&&live.length)return live;
+  const c=staffCacheLoad(); const cc=c?(sid==='sanda'?c.s:c.h):null;
+  if(Array.isArray(cc)&&cc.length)return cc;
+  return DEFAULT_STAFF.filter(x=>x.store===sid);
+};
+// 画面の「担当者」に出す人（社長・番号0は出さない）
+const staffPick=(store,h,s)=>staffOf(store,h,s).filter(x=>x&&x.name&&x.badge!=='president'&&x.myNumber!==0);
 // 静的代車リストは動的マスタ（{store}-cars）が読めない時のフォールバック専用。
 // 本番の実代車とは別物なので、ここから車名を逆引きしないこと。
 const LOANERS_H=[
@@ -1274,7 +1321,37 @@ const removePendingStore=pid=>savePendingStore(loadPending().filter(p=>p.pid!==p
 // ══ 予約データのコアロジック（PC版と同一。挙動を変えないこと）══
 // 全角数字→半角（PC の toHankakuNum と同じ）。ひらがなのまま ３３１０ と打っても 3310 になる。
 const toHankakuNum=(v)=>String(v==null?'':v).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
-const blankInsp=()=>({deliveryNote:'',noteToDelivery:false,name:'',staff:'',carType:'',no:'',course:0,loaner:'',loanerId:null,rentalLabel:'',rentalCarId:null,tokuten:'-',time:'',note:'',bookingStatus:'provisional',entryDate:'',deliveryDate:'',deliveryTime:''});
+const blankInsp=()=>({deliveryNote:'',noteToDelivery:false,name:'',user:'',staff:'',carType:'',no:'',course:0,loaner:'',loanerId:null,rentalLabel:'',rentalCarId:null,tokuten:'-',time:'',note:'',bookingStatus:'provisional',entryDate:'',deliveryDate:'',deliveryTime:''});
+
+// ── この予約の「受け付け」の記録（2026-10-29 ユーザー指示。PC版と同じ形・同じ言葉）──
+//   rcvAt / rcvBy … 最初に受け付けた日時と、受け付けた人
+//   moved         … 日にちを変えた記録（いつ・誰が・どの日からどの日へ）。直近5回ぶん
+//   ★★【at を使わないこと】。整備の at は**マッハ車検の自動制限の特例判定**に使う別物で、
+//     保存のたびに入れ直す。メモの at/by もまた別物。名前を分けて二度と混ぜない。
+const hubAtText=(t)=>{
+  const d=new Date(Number(t||0));
+  if(!t||isNaN(d.getTime()))return '';
+  const p=n=>(n<10?'0':'')+n;
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+};
+const hubDkText=(dk)=>{const p=String(dk||'').split('-');
+  return (p.length===3&&p.every(x=>x!==''))?(Number(p[1])+'/'+Number(p[2])):String(dk||''); };
+const HUB_AT_NONE='記録なし（この仕組みを入れる前の予約です）';
+const hubEntryLines=(r)=>{
+  const out=[];
+  out.push('受け付け　'+((r&&r.rcvAt)?(hubAtText(r.rcvAt)+(r.rcvBy?'　'+r.rcvBy:'')):HUB_AT_NONE));
+  const mv=(r&&Array.isArray(r.moved))?r.moved:[];
+  mv.slice(-3).forEach(m=>{ if(!m)return;
+    out.push('日にち変更　'+hubDkText(m.from)+' → '+hubDkText(m.to)
+      +(m.at?('　'+hubAtText(m.at)):'')+(m.by?('　'+m.by):'')); });
+  return out;
+};
+const hubPushMoved=(prev,from,to,by)=>{
+  const base=Array.isArray(prev)?prev.slice():[];
+  base.push({from:String(from||''),to:String(to||''),at:Date.now(),by:String(by||'')});
+  return base.slice(-5);
+};
+
 // dk("2026-7-9") ⇔ <input type=date>("2026-07-09") 変換
 const dkToInputDate=(dk)=>{if(!dk)return'';const p=String(dk).split('-');return p.length===3?`${p[0]}-${String(p[1]).padStart(2,'0')}-${String(p[2]).padStart(2,'0')}`:'';};
 const inputDateToDk=(v)=>{if(!v)return'';const p=v.split('-').map(Number);return p.length===3?`${p[0]}-${p[1]}-${p[2]}`:'';};
@@ -1669,7 +1746,13 @@ const AuthAddScreen=({onDone,onCancel,staffH,staffS,viaHandoff})=>{
 const LoginScreen=({onLogin,onAddAuth})=>{
   const [err,setErr]=useState('');
   const [success,setSuccess]=useState(null);
-  const [staffList,setStaffList]=useState(DEFAULT_STAFF);
+  // 最初に出す名前も【控え】から（静的名簿だと退職者が一瞬出てしまう・2026-10-29）
+  const [staffList,setStaffList]=useState(()=>{
+    const c=staffCacheLoad();
+    if(c){ const all=[...(c.h||[]).map(x=>({...x,store:'honten'})),...(c.s||[]).map(x=>({...x,store:'sanda'}))].filter(x=>x&&x.name);
+           if(all.length)return all; }
+    return DEFAULT_STAFF;
+  });
   const [staffLoading,setStaffLoading]=useState(true);
   useEffect(()=>{
     (async()=>{
@@ -1685,6 +1768,7 @@ const LoginScreen=({onLogin,onAddAuth})=>{
             all=all.filter(st=>mine.has(st.name));
           }
         }
+        if(Array.isArray(h)||Array.isArray(s))staffCacheSave(h,s);   // 名簿の控え
         if(all.length>0)setStaffList(all);
       }catch(e){}
       setStaffLoading(false);
@@ -2945,7 +3029,7 @@ const MemoSheet=({dateLabel,isNew,initContent,initBy,staffNames,items,onSave,onD
   );
 };
 
-const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDataS,vsId,onClose,onGoSchedule,onToggleArrived,arrivedOv,mySchedPanel,onEditMemo,onToggleMemo})=>{
+const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDataS,vsId,onClose,onGoSchedule,onToggleArrived,arrivedOv,mySchedPanel,onEditMemo,onToggleMemo,onMoveDay})=>{
   const sc=vsId==='honten'?'#1d4ed8':'#dc2626';
   const irows=(inspData[dk]||[]).filter(r=>r&&r.name&&!r.pendingApproval&&r.bookingStatus!=='cancelled');
   const sorted=[...irows.filter(r=>normStore(r.store)===vsId),...irows.filter(r=>!normStore(r.store)),...irows.filter(r=>normStore(r.store)&&normStore(r.store)!==vsId)];
@@ -2968,12 +3052,24 @@ const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDat
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:200,display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:'20px 20px 0 0',maxHeight:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 -8px 40px rgba(0,0,0,.25)'}}>
-        <div style={{padding:'14px 18px 10px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
-          <div style={{flex:1}}>
+        <div style={{padding:'14px 14px 10px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:6}}>
+          {/* ★日にちの前後送り（2026-10-24 ユーザー要望：さっと見たい時に便利）。
+              カードを閉じずに前の日・次の日へ移る。月をまたいでもそのまま進む。 */}
+          {onMoveDay&&(
+            <button data-daynav="-1" title="前の日" onClick={()=>onMoveDay(-1)}
+              style={{width:40,height:40,borderRadius:12,background:'#f1f5f9',border:'none',fontSize:20,
+                color:'#475569',fontWeight:900,flexShrink:0,lineHeight:1}}>‹</button>
+          )}
+          <div style={{flex:1,minWidth:0,textAlign:onMoveDay?'center':'left'}}>
             <div style={{fontWeight:900,fontSize:18,color:dow===0?'#ef4444':dow===6?'#3b82f6':'#1e293b'}}>{m+1}月{d}日（{DOW[dow]}）</div>
             <div style={{fontSize:11,color:'#94a3b8',marginTop:1}}>車検 {irows.length}台 / 整備 {sched.length}件</div>
           </div>
-          <button onClick={onClose} style={{width:32,height:32,borderRadius:'50%',background:'#f1f5f9',border:'none',fontSize:16,color:'#64748b',flexShrink:0}}>✕</button>
+          {onMoveDay&&(
+            <button data-daynav="1" title="次の日" onClick={()=>onMoveDay(1)}
+              style={{width:40,height:40,borderRadius:12,background:'#f1f5f9',border:'none',fontSize:20,
+                color:'#475569',fontWeight:900,flexShrink:0,lineHeight:1}}>›</button>
+          )}
+          <button onClick={onClose} style={{width:32,height:32,borderRadius:'50%',background:'#f1f5f9',border:'none',fontSize:16,color:'#64748b',flexShrink:0,marginLeft:2}}>✕</button>
         </div>
         <div style={{overflowY:'auto',WebkitOverflowScrolling:'touch',flex:1,padding:'12px 16px'}}>
           {sorted.length>0&&(
@@ -2985,7 +3081,7 @@ const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDat
                 return(
                   <div key={i} style={{padding:'9px 11px',marginBottom:5,borderRadius:10,background:isOther?'#f8fafc':'white',border:`1.5px solid ${isOther?'#e2e8f0':sc+'33'}`,borderLeft:`4px solid ${isOther?'#94a3b8':sc}`,opacity:isOther?0.75:1}}>
                     <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <span style={{fontWeight:800,fontSize:14}}>{r.name}</span>
+                      <span style={{fontWeight:800,fontSize:14}}>{sama(r.name)}</span>
                       {c&&<span style={{padding:'2px 7px',borderRadius:10,background:c.bg,color:c.color,fontSize:10,fontWeight:700}}>{c.name}</span>}
                       {isOther&&<span style={{fontSize:10,color:'#94a3b8',marginLeft:'auto'}}>{normStore(r.store)==='honten'?'本店':'三田店'}</span>}
                     </div>
@@ -3013,7 +3109,7 @@ const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDat
                         background:_arr?'#fde047':'transparent',border:_arr?'2px solid #dc2626':'2px solid #fed7aa',
                         color:'#dc2626',fontWeight:900,fontSize:13,lineHeight:1}}>{_arr?'✓':''}</span>
                     {r.time&&<span style={{fontSize:11,fontWeight:800,color:'#9a3412'}}>{r.time}</span>}
-                    <span style={{fontWeight:800,fontSize:13}}>{r.name}</span>
+                    <span style={{fontWeight:800,fontSize:13}}>{sama(r.name)}</span>
                     {r.carType&&<span style={{fontSize:11,color:'#64748b'}}>🚗{r.carType}</span>}
                     <span style={{marginLeft:'auto',fontSize:10,fontWeight:800,color:'#9a3412',whiteSpace:'nowrap'}}>→ {wl[1]}/{wl[2]}車検 ›</span>
                   </div>
@@ -3029,7 +3125,7 @@ const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDat
                   <div key={i} style={{display:'flex',gap:8,padding:'7px 10px',marginBottom:4,background:'white',borderRadius:10,border:'1.5px solid #e0f2fe',borderLeft:'4px solid #0e7490'}}>
                     <span style={{fontWeight:700,fontSize:11,color:'#0e7490',width:40,flexShrink:0}}>{getBaseSlot(key)}</span>
                     <div>
-                      <span style={{fontWeight:700,fontSize:13}}>{r.name}</span>
+                      <span style={{fontWeight:700,fontSize:13}}>{sama(r.name)}</span>
                       {r.carType&&<span style={{fontSize:11,color:'#64748b',marginLeft:5}}>{r.carType}</span>}
                       {(w||r.workType)&&<span style={{marginLeft:5,padding:'1px 5px',background:'#ccfbf1',color:'#0f766e',borderRadius:6,fontSize:10,fontWeight:700}}>{w?w.name:r.workType}</span>}
                       {r.content&&<div style={{fontSize:11,color:'#64748b',marginTop:1}}>{r.content}</div>}
@@ -3394,10 +3490,31 @@ const EditModal=({quickItems,mode,initial,vsId,currentUser,staffList,loanerCars,
         </div>
         {lockedBy&&<div style={{margin:'10px 16px 0',padding:'8px 12px',background:'#fff7ed',border:'1.5px solid #fed7aa',borderRadius:10,fontSize:12,color:'#92400e',fontWeight:700}}>🔒 {lockedBy}さんが編集中の可能性があります。保存は慎重に。</div>}
         <div style={{overflowY:'auto',WebkitOverflowScrolling:'touch',flex:1,padding:'12px 16px 4px',display:'flex',flexDirection:'column',gap:12}}>
+          {/* 氏名（車検は来店者氏名。すぐ下に車検証の使用者を1行足す・2026-10-29 整備からの依頼）
+              ★スマホは横に割らず「2行」にする（2026-10-28 ユーザー決定）。
+                画面が狭く、横半分だと1つの欄に10文字ほどしか見えないため。
+              ★整備のカードには出さない（車検証の話なので）。 */}
           <div>
-            <label style={LBL}>氏名 *</label>
-            <input value={form.name||''} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="お客様名" style={INP}/>
+            <label style={LBL}>{isInsp?'来店者氏名 *':'氏名 *'}</label>
+            {/* ★「様」は【見えるだけ】。入力した字（form.name）には入らない（2026-10-30 ユーザー指示）。 */}
+            <div style={{position:'relative'}}>
+              <input value={form.name||''} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="お客様名" style={{...INP,paddingRight:32}}/>
+              {form.name&&!SAMA_RE.test(String(form.name).trim())&&(
+                <span data-namesama="1" style={{position:'absolute',right:11,top:'50%',transform:'translateY(-50%)',
+                  fontSize:14,fontWeight:700,color:'#64748b',pointerEvents:'none'}}>様</span>)}
+            </div>
           </div>
+          {isInsp&&(
+          <div>
+            <div style={{...LBL,display:'flex',alignItems:'center',gap:8}}>
+              <span>車検証の使用者</span>
+              <button type="button" data-userSame="1" onClick={()=>setForm(p=>({...p,user:p.name||''}))}
+                style={{fontSize:11,fontWeight:800,color:'#1d4ed8',background:'#eff6ff',border:'1.5px solid #bfdbfe',borderRadius:7,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>同じ</button>
+            </div>
+            <input data-userfld="1" value={form.user||''} onChange={e=>setForm(p=>({...p,user:e.target.value}))}
+              placeholder="同じなら「同じ」を押す" style={INP}/>
+          </div>
+          )}
           <div style={{display:'flex',gap:10}}>
             <div style={{flex:1}}>
               <label style={LBL}>車種 *</label>
@@ -3680,6 +3797,15 @@ const EditModal=({quickItems,mode,initial,vsId,currentUser,staffList,loanerCars,
               </div>
             )}
           </div>
+          {/* ★この予約の受け付け（2026-10-29 ユーザー指示）。PC版の予約カードと同じ中身。 */}
+          {!mode.isNew&&(
+            <div data-bkentry="1" style={{padding:'8px 11px',background:'#f8fafc',border:'1px solid #e5e7eb',
+              borderRadius:10,fontSize:11,color:'#64748b',lineHeight:1.8}}>
+              {hubEntryLines(initial||{}).map((x,i)=>(
+                <div key={i} style={i===0?{fontWeight:700,color:'#475569'}:{color:'#9a3412'}}>{x}</div>
+              ))}
+            </div>
+          )}
           {err&&<div style={{padding:'9px 12px',background:'#fef2f2',border:'1.5px solid #fca5a5',borderRadius:10,color:'#dc2626',fontSize:12,fontWeight:700}}>⚠ {err}</div>}
         </div>
         <div style={{padding:'10px 16px calc(14px + env(safe-area-inset-bottom,0px))',borderTop:'1px solid #f1f5f9',display:'flex',gap:8}}>
@@ -3900,7 +4026,7 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
                         color:_arr?'#dc2626':(isOther?'#64748b':sc),
                         background:_arr?'#fde047':'transparent',
                         border:_arr?'2px solid #dc2626':'2px solid transparent'}}>{_arr?'✓':(i+1)+'.'}</span>
-                    <span style={{fontWeight:800,fontSize:15,flex:1}}>{r.name}</span>
+                    <span style={{fontWeight:800,fontSize:15,flex:1}}>{sama(r.name)}</span>
                     {r.pendingApproval&&<span style={{padding:'2px 7px',borderRadius:10,background:'#fef3c7',color:'#b45309',fontSize:10,fontWeight:800}}>⏳ 承認待ち</span>}
                     {c&&<span style={{padding:'2px 8px',borderRadius:10,background:c.bg,color:c.color,fontSize:10,fontWeight:700}}>{c.name}</span>}
                     {isOther&&<span style={{fontSize:10,color:'#94a3b8',padding:'1px 5px',background:'#f1f5f9',borderRadius:6}}>{normStore(r.store)==='honten'?'本店':'三田店'}</span>}
@@ -3981,7 +4107,7 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
                   <div key={wdk+'-'+ix} onClick={()=>onOpenEdit({type:'insp',dk:wdk,idx:ix,isNew:false})}
                     style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',padding:'6px 2px',borderTop:'1px dashed #fed7aa',cursor:'pointer'}}>
                     {r.time&&<span style={{fontSize:11,fontWeight:800,color:'#9a3412'}}>{r.time}</span>}
-                    <span style={{fontWeight:800,fontSize:13}}>{r.name}</span>
+                    <span style={{fontWeight:800,fontSize:13}}>{sama(r.name)}</span>
                     {r.carType&&<span style={{fontSize:11,color:'#64748b'}}>🚗{r.carType}</span>}
                     {loaner&&<span style={{fontSize:11,color:'#0284c7'}}>{!r.rentalLabel&&getLoanerLocked(myLoanerRes,wdk,r.name,r.bookingKey||`insp-${wdk}-${ix}`)&&'🔒 '}{loaner}</span>}
                     <span style={{marginLeft:'auto',fontSize:10,fontWeight:800,color:'#9a3412',whiteSpace:'nowrap'}}>→ {wl[1]}/{wl[2]}車検 ›</span>
@@ -3991,13 +4117,20 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
               </div>
             );
           })()}
-          {/* 納車（この日に納車する車検・予定）を派生表示。タップで元の予約を開く。deliveryDateは任意項目 */}
+          {/* ★納車はタイムスケジュールの【納車時間の枠の中】に出す（2026-10-24 ユーザー指示）。
+              以前は一番上に緑の箱でまとめて出していたが、何時の納車なのか枠を見て分からなかった。
+              PC版と同じ考え方（_dlBySlot）。deliveryDate は任意項目。タップで元の予約が開く。 */}
           {(()=>{
-            const dls=[];
+            const dlBySlot={};
+            const putDl=(r,extra)=>{
+              const b=getBaseSlot(r.deliveryTime||'未定');
+              const slot=SCHED_SLOTS.indexOf(b)>=0?b:'未定';
+              (dlBySlot[slot]=dlBySlot[slot]||[]).push({r,...extra});
+            };
             Object.keys(inspData||{}).forEach(wdk=>{
               (inspData[wdk]||[]).forEach((r,ix)=>{ if(!r||!r.name||r.deliveryDate!==dk||r.bookingStatus==='cancelled')return;
                 if((normStore(r.store)||'honten')!==vsId)return;
-                dls.push({r,wdk,ix,kind:'insp'});
+                putDl(r,{wdk,ix,kind:'insp'});
               });
             });
             Object.keys(sd||{}).forEach(wdk=>{
@@ -4005,39 +4138,33 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
                 const r=sd[wdk][sk];
                 if(!r||!r.name||r.deliveryDate!==dk)return;
                 if(wdk===dk&&getBaseSlot(sk)===getBaseSlot(r.deliveryTime||'未定'))return; // 自分自身の枠と重なる時は出さない
-                dls.push({r,wdk,sk,kind:'sched'});
+                putDl(r,{wdk,sk,kind:'sched'});
               });
             });
-            if(dls.length===0)return null;
-            const slotIx=v=>{const i=SCHED_SLOTS.indexOf(getBaseSlot(v||'未定'));return i<0?999:i;};
-            dls.sort((a,b)=>slotIx(a.r.deliveryTime)-slotIx(b.r.deliveryTime));
-            return(
-              <div style={{margin:'0 0 8px',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:12,padding:'8px 10px'}}>
-                <div style={{fontWeight:900,fontSize:12,color:'#047857',marginBottom:4}}>🏁 納車（{dls.length}件）</div>
-                {dls.map((d,di)=>{
-                  const r=d.r,wl=d.wdk.split('-');
-                  const loaner=d.kind==='insp'
-                    ?(r.rentalLabel||getLoanerLabel(myLoanerRes,d.wdk,r.name,`insp-${d.wdk}-${d.ix}`,myCars)||'')
-                    :(r.rentalLabel||getLoanerLabel(myLoanerRes,d.wdk,r.name,`sched-${d.wdk}-${d.sk}`,myCars)||'');
-                  return(
-                  <div key={'dl-'+d.kind+'-'+d.wdk+'-'+(d.ix??d.sk)+'-'+di}
-                    onClick={()=>d.kind==='insp'?onOpenEdit({type:'insp',dk:d.wdk,idx:d.ix,isNew:false}):onOpenEdit({type:'sched',dk:d.wdk,slot:d.sk,isNew:false})}
-                    style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',padding:'6px 2px',borderTop:'1px dashed #a7f3d0',cursor:'pointer'}}>
-                    <span style={{fontSize:11,fontWeight:800,color:'#047857'}}>{deliverySlotLabel(r.deliveryTime||'未定')}</span>
-                    <span style={{fontWeight:800,fontSize:13}}>{r.name}</span>
-                    {r.carType&&<span style={{fontSize:11,color:'#64748b'}}>🚗{r.carType}</span>}
-                    {loaner&&<span style={{fontSize:11,color:'#0284c7'}}>{!r.rentalLabel&&d.kind==='insp'&&getLoanerLocked(myLoanerRes,d.wdk,r.name,`insp-${d.wdk}-${d.ix}`)&&'🔒 '}{loaner}</span>}
-                    {/* ★納車日の備考（濃い字）と入庫時の備考（薄い緑・スイッチが入っている時だけ）（2026-10-02・C案） */}
-                    {r.deliveryNote&&<span style={{fontSize:11,color:'#064e3b',fontWeight:700}}>{r.deliveryNote}</span>}
-                    {r.noteToDelivery&&(d.kind==='insp'?r.note:r.content)&&
-                      <span style={{fontSize:11,color:'#374151',background:'#d1fae5',border:'1px solid #6ee7b7',borderRadius:6,padding:'0 6px'}}>{(d.kind==='insp'?r.note:r.content)}</span>}
-                    <span style={{marginLeft:'auto',fontSize:10,fontWeight:800,color:'#047857',whiteSpace:'nowrap'}}>{(r.entryDate&&r.entryDate!==d.wdk)?r.entryDate.split('-').slice(1).join('/')+'入庫':wl[1]+'/'+wl[2]+(d.kind==='insp'?'車検':'予定')} → 納車 ›</span>
-                  </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+            // 納車の1行（枠の中に出す緑の行）
+            const dlRow=(d,di)=>{
+              const r=d.r,wl=d.wdk.split('-');
+              const loaner=d.kind==='insp'
+                ?(r.rentalLabel||getLoanerLabel(myLoanerRes,d.wdk,r.name,`insp-${d.wdk}-${d.ix}`,myCars)||'')
+                :(r.rentalLabel||getLoanerLabel(myLoanerRes,d.wdk,r.name,`sched-${d.wdk}-${d.sk}`,myCars)||'');
+              return (
+                <div key={'dl-'+d.kind+'-'+d.wdk+'-'+(d.ix??d.sk)+'-'+di} data-mdl="1"
+                  onClick={()=>d.kind==='insp'?onOpenEdit({type:'insp',dk:d.wdk,idx:d.ix,isNew:false}):onOpenEdit({type:'sched',dk:d.wdk,slot:d.sk,isNew:false})}
+                  style={{marginBottom:4,padding:'3px 6px',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,cursor:'pointer'}}>
+                  <span style={{fontSize:10,fontWeight:900,color:'#fff',background:'#047857',borderRadius:5,padding:'1px 5px',marginRight:5}}>🏁 納車</span>
+                  <span style={{fontWeight:800,fontSize:13}}>{sama(r.name)}</span>
+                  {r.carType&&<span style={{fontSize:11,color:'#64748b',marginLeft:5}}>{r.carType}</span>}
+                  {loaner&&<span style={{fontSize:10,color:'#0284c7',marginLeft:5}}>{!r.rentalLabel&&d.kind==='insp'&&getLoanerLocked(myLoanerRes,d.wdk,r.name,`insp-${d.wdk}-${d.ix}`)&&'🔒 '}{loaner}</span>}
+                  <span style={{fontSize:10,fontWeight:800,color:'#047857',marginLeft:5,whiteSpace:'nowrap'}}>
+                    {(r.entryDate&&r.entryDate!==d.wdk)?r.entryDate.split('-').slice(1).join('/')+'入庫':wl[1]+'/'+wl[2]+(d.kind==='insp'?'車検':'予定')} ›</span>
+                  {/* ★納車日の備考（濃い字）と入庫時の備考（薄い緑・スイッチが入っている時だけ）（2026-10-02・C案） */}
+                  {r.deliveryNote&&<div style={{fontSize:11,color:'#064e3b',fontWeight:700,marginTop:1}}>{r.deliveryNote}</div>}
+                  {r.noteToDelivery&&(d.kind==='insp'?r.note:r.content)&&
+                    <div style={{fontSize:11,color:'#374151',marginTop:1}}>{(d.kind==='insp'?r.note:r.content)}</div>}
+                </div>
+              );
+            };
+            return (
           <div style={{background:'white',borderRadius:12,overflow:'hidden',border:'1px solid #e0f2fe'}}>
             {SCHED_SLOTS.map(slot=>{
               const day=sd[dk]||{};
@@ -4046,6 +4173,9 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
               if(slot==='未定'){ if(day['12:30'])subKeys.push('12:30'); subKeys.push(...Object.keys(day).filter(k=>k.startsWith('12:30__'))); }
               const dks=subKeys.filter(k=>{const r=day[k];return r&&r.name;});
               const isEmpty=dks.length===0;
+              // ★その枠に出す納車（2026-10-24）。整備が無くても納車があれば空には見せない
+              const dls=dlBySlot[slot]||[];
+              const emptyLook=isEmpty&&dls.length===0;
               const spc=isSpecialSlot(slot);
               const restricted=isSlotRestricted(slot); // 入庫制限の時間帯（PC版と同じく整備予約のみ制限）
               // 制限中でも「制限解除の作業」の予約が入っている枠は、入庫時間の欄だけ制限色を残して
@@ -4056,11 +4186,11 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
               const _sk=_r0?dk+'|'+(_r0.name||dks[0]):null;
               const _schedArr=_r0?((arrivedOv&&_sk in arrivedOv)?arrivedOv[_sk]:!!_r0.arrived):false;
               return(
-                <div key={slot} style={{display:'flex',borderBottom:'1px solid #f0fdfa',background:restricted?'#fee2e2':isEmpty?(spc?'#fdfaff':'white'):(spc?'#f5f0ff':'#f0fdfa')}}>
+                <div key={slot} data-mslot={slot} style={{display:'flex',borderBottom:'1px solid #f0fdfa',background:restricted?'#fee2e2':emptyLook?(spc?'#fdfaff':'white'):(spc?'#f5f0ff':'#f0fdfa')}}>
                   {/* ★時刻欄をタップすると、その枠の予約に入庫済みチェックが入る */}
                   {/* 押した直後は手元の保持を優先（古いキャッシュで点滅しないように） */}
                   <div onClick={e=>{e.preventDefault();e.stopPropagation();const k=dks[0];const r0=k&&day[k];if(r0&&r0.name&&onToggleArrived)onToggleArrived('sched',dk,k);}}
-                    style={{width:44,flexShrink:0,padding:'8px 4px',fontSize:11,fontWeight:700,color:_schedArr?'#dc2626':(spc?(isEmpty?'#7c3aed':'#9333ea'):(isEmpty?'#475569':'#0e7490')),background:_schedArr?'#fde047':undefined,textAlign:'center',borderRight:`2px solid ${spc?(isEmpty?'#f3e8ff':'#d8b4fe'):(isEmpty?'#f0f9ff':'#99f6e4')}`}}>{_schedArr?'✓':slot}</div>
+                    style={{width:44,flexShrink:0,padding:'8px 4px',fontSize:11,fontWeight:700,color:_schedArr?'#dc2626':(spc?(emptyLook?'#7c3aed':'#9333ea'):(emptyLook?'#475569':'#0e7490')),background:_schedArr?'#fde047':undefined,textAlign:'center',borderRight:`2px solid ${spc?(emptyLook?'#f3e8ff':'#d8b4fe'):(emptyLook?'#f0f9ff':'#99f6e4')}`}}>{_schedArr?'✓':slot}</div>
                   <div style={{flex:1,padding:'5px 9px',background:exemptInSlot?'white':undefined}}>
                     {dks.map((key,ki)=>{
                       const r=day[key];
@@ -4069,7 +4199,7 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
                       return(
                         <div key={ki} onClick={()=>{if(otherView){alert('🏪 他の店のタイムスケジュールは閲覧のみです。\n直すには上の切り替えで自分の店に戻してください。\n（車検は他の店でも直せます）');return;}onOpenEdit({type:'sched',dk,slot:key,isNew:false});}}
                           style={{marginBottom:4,cursor:otherView?'default':'pointer',opacity:otherView?0.75:1}}>
-                          <span style={{fontWeight:800,fontSize:13}}>{r.name}</span>
+                          <span style={{fontWeight:800,fontSize:13}}>{sama(r.name)}</span>
                           {r.carType&&<span style={{fontSize:11,color:'#64748b',marginLeft:5}}>{r.carType}</span>}
                           {(w||r.workType)&&<span style={{marginLeft:5,padding:'1px 5px',background:'#ccfbf1',color:'#0f766e',borderRadius:6,fontSize:10,fontWeight:700}}>{w?w.name:r.workType}</span>}
                           {loanerTxt&&<span style={{marginLeft:5,fontSize:10,color:'#0284c7'}}>{loanerTxt}</span>}
@@ -4078,6 +4208,7 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
                         </div>
                       );
                     })}
+                    {dls.map(dlRow)}
                     {!otherView&&<div onClick={()=>{
                         if(isHoliday){blockNew();return;}
                         const free=subKeys.find(k=>!day[k]||!day[k].name)||makeSlotKey(slot,subKeys.length);
@@ -4091,6 +4222,8 @@ const ScheduleView=({pleaveData,onEditMemo,onToggleMemo,otherView,inspData,sched
               );
             })}
           </div>
+            );
+          })()}
         </div>
         <div style={{margin:'12px 12px 20px'}}>
           <div style={{fontWeight:900,fontSize:13,color:'#7c3aed',marginBottom:6}}>📝 備考・メモ</div>
@@ -5355,7 +5488,7 @@ const MobileRestoreModal=({user,onClose,inspData})=>{
                            {rows.map((r,i)=>{ const isConf=r.bookingStatus==='confirmed'&&!r.pendingApproval; const here=isHere(r); const just=!!added[rowSig(r)];
                              return <div key={i} style={{border:`1px solid ${here?'#eef2f8':'#e6c98a'}`,borderRadius:9,padding:'7px 10px',display:'flex',gap:9,alignItems:'flex-start',background:here?'white':'#fffaf0'}}>
                                <div style={{fontSize:13,fontWeight:800,color:'#173da8',width:42,flexShrink:0}}>{r.time||'—'}</div>
-                               <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:800}}>{r.name}</div>{r.carType&&<div style={{fontSize:11,color:'#64748b'}}>{r.carType}</div>}{r.loaner&&<div style={{fontSize:10.5,color:'#0e9d58',fontWeight:700,marginTop:1}}>🔑 {r.loaner}</div>}</div>
+                               <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:800}}>{sama(r.name)}</div>{r.carType&&<div style={{fontSize:11,color:'#64748b'}}>{r.carType}</div>}{r.loaner&&<div style={{fontSize:10.5,color:'#0e9d58',fontWeight:700,marginTop:1}}>🔑 {r.loaner}</div>}</div>
                                {here?(just?<span style={{fontSize:10,fontWeight:800,padding:'2px 8px',borderRadius:999,alignSelf:'center',whiteSpace:'nowrap',background:'#e4f6ec',color:'#0e9d58'}}>✓足しました</span>:<span style={{fontSize:10,fontWeight:800,padding:'2px 8px',borderRadius:999,alignSelf:'center',whiteSpace:'nowrap',background:isConf?'#e4f6ec':'#fbeed5',color:isConf?'#0e9d58':'#c9760a'}}>{isConf?'確定':r.pendingApproval?'承認待ち':'仮'}</span>):<button onClick={()=>doAddBack(drillDate,r)} style={{alignSelf:'center',flexShrink:0,fontSize:11,fontWeight:800,padding:'5px 12px',borderRadius:999,border:'none',background:'#1d4ed8',color:'white'}}>＋足す</button>}
                              </div>;
                            })}
@@ -5905,6 +6038,7 @@ const App=()=>{
       if(isPlainObj(doS))setDayOffS(doS);
       if(Array.isArray(stH))setStaffH(stH);
       if(Array.isArray(stS))setStaffS(stS);
+      staffCacheSave(stH,stS);   // 名簿の控え（電波が無い時に退職者が復活しないよう）
       if(isPlainObj(plH))setPleaveH(plH);
       if(isPlainObj(plS))setPleaveS(plS);
       if(isPlainObj(mhol))setMonthlyHolidays(mhol);
@@ -6533,7 +6667,17 @@ const App=()=>{
         // ★カードの「入庫店舗」で選んだ店を優先する（2026-10-02）。以前は元の行の店が勝っていて変えられなかった
         //   日を動かした時は、移り先で承認を見直す（元の承認／承認待ちは引き継がない。PC版と同じ）
         const moving=isMove?{bookingKey:bkFinal,approved:undefined,pendingApproval:undefined}:{};
-        rows[idxPlace]={...entry,...moving,store:normStore(entry.store)||normStore(prevRow?.store)||vsId,seq,bookingStatus:'confirmed'};
+        // ★受け付けの記録（2026-10-29 整備からの依頼）。PC版と同じ形。
+        //   いちど入った rcvAt は上書きしない＝最初に受け付けた時刻が残る。
+        //   ★at ではなく rcvAt。at はマッハ特例に使う別物（上の注意書きを読むこと）。
+        //   ★受け付けた人は【サインインしている人】。userName はお客様の氏名なので使わない。
+        const _opName=(user&&user.name)||'';
+        const _srcRow=isMove?(((base&&base[req.dk])||[])[req.idx]||null):prevRow;
+        const _rcvAt=(entry.rcvAt!=null)?entry.rcvAt:((_srcRow&&_srcRow.rcvAt!=null)?_srcRow.rcvAt:Date.now());
+        const _rcvBy=entry.rcvBy||(_srcRow&&_srcRow.rcvBy)||_opName;
+        // 日にちを変えた時だけ、その記録を1つ足す
+        const _mv=(isMove&&tDk!==req.dk)?{moved:hubPushMoved(entry.moved,req.dk,tDk,_opName)}:{};
+        rows[idxPlace]={...entry,...moving,..._mv,store:normStore(entry.store)||normStore(prevRow?.store)||vsId,seq,rcvAt:_rcvAt,rcvBy:_rcvBy,bookingStatus:'confirmed'};
         if(isMove){delete rows[idxPlace].approved;delete rows[idxPlace].pendingApproval;}
         const dayLimit=inspLimits[tDk]??6;
         const wasPending=editingActive&&!!prevRow.pendingApproval;
@@ -6621,6 +6765,15 @@ const App=()=>{
       const bkFinal=`sched-${tDk}-${slotFinal}`;
       const bkOld=`sched-${req.dk}-${req.slot}`;
       const entry=await applyLoanerAction(clean(form),loanerAction,bkFinal,userName,isMove?bkOld:'');
+      // ★受け付けの記録（2026-10-29）。rcvAt は上書きしない。at はマッハ特例の別物なので触らない。
+      //   受け付けた人は【サインインしている人】（userName はお客様の氏名）。
+      {
+        const _opName=(user&&user.name)||'';
+        const _prevE0=(sd&&sd[req.dk])?sd[req.dk][req.slot]:null;
+        entry.rcvAt=(entry.rcvAt!=null)?entry.rcvAt:((_prevE0&&_prevE0.rcvAt!=null)?_prevE0.rcvAt:Date.now());
+        entry.rcvBy=entry.rcvBy||(_prevE0&&_prevE0.rcvBy)||_opName;
+        if(isMove&&tDk!==req.dk)entry.moved=hubPushMoved(entry.moved,req.dk,tDk,_opName);
+      }
       const placedId=Date.now();
       await writeShared(sdKey,sd,base=>{
         const out={...base};
@@ -7029,7 +7182,7 @@ const App=()=>{
         {tab==='sched'&&<ScheduleView onEditMemo={(dk,idx)=>setMemoEdit({dk,idx})} onToggleMemo={toggleDayMemo} otherView={otherView} inspData={inspData} schedDataH={schedDataH} schedDataS={schedDataS} memoDataH={memoDataH} memoDataS={memoDataS}
           loanerResH={loanerResH} loanerResS={loanerResS} loanerCarsH={loanerCarsH} loanerCarsS={loanerCarsS} vsId={vsId} initDate={schedInitDate} onOpenEdit={openEdit} onToggleArrived={toggleArrived} arrivedOv={arrivedOv}
           schedRestrictions={schedRestrictions}
-          staffList={((vsId==='honten'?staffH:staffS).length>0?(vsId==='honten'?staffH:staffS):DEFAULT_STAFF.filter(s=>s.store===vsId)).filter(s=>s.badge!=='president'&&s.myNumber!==0)}
+          staffList={staffPick(vsId,staffH,staffS)}
           dayOffData={vsId==='honten'?dayOffH:dayOffS}
           pleaveData={vsId==='honten'?pleaveH:pleaveS}
           closedDays={cDays} closedDates={cDates} overrideOpen={overrideOpen} inspLimits={inspLimits}/>}
@@ -7046,7 +7199,7 @@ const App=()=>{
           vsId={vsId} isClosedDk={isClosedDk} onNeedFile={needCfFile}
           onBook={bookFromCust} onTemp={tempFromCust} onReload={()=>loadCf(true)}/>}
         {tab==='off'&&<HolidayView user={user} vsId={myStore} viewStore={vsId} adminMode={canRestore(user)}
-          staffH={staffH.length?staffH:DEFAULT_STAFF.filter(s=>s.store==='honten')} staffS={staffS.length?staffS:DEFAULT_STAFF.filter(s=>s.store==='sanda')}
+          staffH={staffOf('honten',staffH,staffS)} staffS={staffOf('sanda',staffH,staffS)}
           dayOffH={dayOffH} dayOffS={dayOffS} pleaveH={pleaveH} pleaveS={pleaveS}
           closedDaysH={closedDaysH} closedDaysS={closedDaysS} closedDatesH={closedDatesH} closedDatesS={closedDatesS} overrideOpen={overrideOpen}
           monthlyHolidays={monthlyHolidays} onToggle={toggleDayOff}
@@ -7054,6 +7207,9 @@ const App=()=>{
       </div>
       {dayDetail&&<DayDetailModal {...dayDetail} onEditMemo={otherView?null:(dk,idx)=>setMemoEdit({dk,idx})} onToggleMemo={otherView?null:toggleDayMemo} inspData={inspData} schedDataH={schedDataH} schedDataS={schedDataS} memoDataH={memoDataH} memoDataS={memoDataS} vsId={vsId} onToggleArrived={toggleArrived} arrivedOv={arrivedOv}
         onClose={()=>setDayDetail(null)}
+        onMoveDay={delta=>setDayDetail(p=>{ if(!p)return p;
+          const nd=new Date(p.y,p.m,p.d+delta);
+          return {dk:`${nd.getFullYear()}-${nd.getMonth()+1}-${nd.getDate()}`,y:nd.getFullYear(),m:nd.getMonth(),d:nd.getDate()}; })}
         mySchedPanel={<MySchedPanel compact dk={dayDetail.dk} user={{uid:user.uid,name:user.name}} pub={mySched} savePub={saveMySched} priv={myPriv}/>}
         onGoSchedule={(y,m,d)=>{setSchedInitDate({y,m,d});setTab('sched');setDayDetail(null);}}/>}
       {memoEdit&&(()=>{
@@ -7065,8 +7221,7 @@ const App=()=>{
         const items=(Array.isArray(memoItemsRaw)?memoItemsRaw:[]).map(si=>({...si,text:si.text||si.content||si.label||''})).filter(si=>si.text);
         // ★担当者：新規は自分、直す時は元の人（入っていなければ空＝ここで入れられる）
         const initBy=isNew?(user?.name||''):((cur&&cur.by)||'');
-        const staffNames=((vsId==='honten'?staffH:staffS).length>0?(vsId==='honten'?staffH:staffS):DEFAULT_STAFF.filter(x=>x.store===vsId))
-          .filter(x=>x.badge!=='president'&&x.myNumber!==0).map(x=>x.name);
+        const staffNames=staffPick(vsId,staffH,staffS).map(x=>x.name);
         return <MemoSheet dateLabel={lbl} isNew={isNew} items={items} initBy={initBy} staffNames={staffNames}
           initContent={cur?(cur.content||cur.text||''):''}
           onSave={(c,by)=>saveDayMemo(memoEdit.dk,memoEdit.idx,c,by)}
@@ -7079,7 +7234,7 @@ const App=()=>{
         initial={editMode.initial}
         vsId={vsId}
         currentUser={user}
-        staffList={DEFAULT_STAFF.filter(s=>s.store===vsId)}
+        staffList={staffPick(vsId,staffH,staffS)}
         loanerCars={vsId==='honten'?loanerCarsH:loanerCarsS}
         rentalCars={rentalCars.length?rentalCars:DEFAULT_RENTAL_CARS}
         loanerRes={vsId==='honten'?loanerResH:loanerResS}

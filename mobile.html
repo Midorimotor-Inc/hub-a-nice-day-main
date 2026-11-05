@@ -17,7 +17,7 @@
   // 画面復帰時と定期に自分自身をno-storeで取得し、__APP_BUILDが変わっていれば更新バナーを表示する。
   // タップ時は cache:'reload' で新HTMLをHTTPキャッシュへ焼き直してから reload するので、確実に新版になる
   // （アプリを消したりURLを打ち直す必要はない）。本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する。
-  window.__APP_BUILD='build-1793863994000';
+  window.__APP_BUILD='build-1793870624205';
   (function(){
     var RUNNING=window.__APP_BUILD, shown=false, checking=false;
     function runningVer(){
@@ -106,7 +106,7 @@ input,select,textarea{font-family:inherit;font-size:16px !important;}
 <script id="app-jsx" type="text/plain">
 const {useState,useEffect,useCallback,useMemo,useRef,memo}=React;
 // ★ バージョン管理：システム全体で1つ。変更のたびにindex_dev.htmlのAPP_VERSIONと同値で0.01上げる
-const MOBILE_VERSION='3.100.1';
+const MOBILE_VERSION='3.100.2';
 // ★画面の色（環境の見分け）：テスト版＝オレンジ／メイン＝青。PC（index）と同じ決まり。
 //   この4つだけを port_to_main.js が本番用に書き換えるので、色は必ずここを使うこと。
 const UI_BG='linear-gradient(160deg,#1e1b4b,#3730a3 60%,#6d28d9)';                                               // ログイン・登録・引き継ぎ画面の背景（べた塗り）
@@ -1565,7 +1565,6 @@ const Adv2yTags=({row})=>{
 //   未注文＝白地にこはく色の丸「部」／注文済み＝緑の丸に白い ✓。タップするたびに入れ替わる。
 //   予約の1行に parts:true を持つだけ（入庫済み arrived と同じ作り・独立した印）。
 //   ★色と大きさはこの定数で決める。画面に直書きしないこと。index_dev.html と同じ値にそろえる。
-const PARTS_CHIP_ON=false;        // ★2026-11-05 の不具合報告でいったん止めた（本番のみ・テスト版は true）
 const PARTS_SIZE=24;              // 指で押せる大きさ（PC は 22）
 const PARTS_OFF_BG='#ffffff';
 const PARTS_OFF_FG='#b45309';
@@ -3379,7 +3378,7 @@ const DayDetailModal=({dk,y,m,d,inspData,schedDataH,schedDataS,memoDataH,memoDat
                       <span style={{fontWeight:800,fontSize:14}}>{sama(r.name)}</span>
                       {c&&<span style={{padding:'2px 7px',borderRadius:10,background:c.bg,color:c.color,fontSize:10,fontWeight:700}}>{c.name}</span>}
                       {/* ★部品注文チェック（マッハ車検の行だけ・2026-11-05） */}
-                      {PARTS_CHIP_ON&&c&&c.id===1&&!isOther&&_ix>=0&&<PartsChip on={_parts} size={22} onToggle={()=>onToggleParts&&onToggleParts(dk,_ix)}/>}
+                      {c&&c.id===1&&!isOther&&_ix>=0&&<PartsChip on={_parts} size={22} onToggle={()=>onToggleParts&&onToggleParts(dk,_ix)}/>}
                       {isOther&&<span style={{fontSize:10,color:'#94a3b8',marginLeft:'auto'}}>{normStore(r.store)==='honten'?'本店':'三田店'}</span>}
                     </div>
                     <div style={{marginTop:3,fontSize:11,color:'#64748b',display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -4707,7 +4706,7 @@ const ScheduleView=({pleaveData,trainingData,onEditMemo,onToggleMemo,otherView,i
                     {r.pendingApproval&&<span style={{padding:'2px 7px',borderRadius:10,background:'#fef3c7',color:'#b45309',fontSize:10,fontWeight:800}}>⏳ 承認待ち</span>}
                     {c&&<span style={{padding:'2px 8px',borderRadius:10,background:c.bg,color:c.color,fontSize:10,fontWeight:700}}>{c.name}</span>}
                     {/* ★部品注文チェック（マッハ車検の行だけ・2026-11-05。PC の1日表示と同じ） */}
-                    {PARTS_CHIP_ON&&c&&c.id===1&&!isOther&&<PartsChip on={_parts} onToggle={()=>onToggleParts&&onToggleParts(dk,idx)}/>}
+                    {c&&c.id===1&&!isOther&&<PartsChip on={_parts} onToggle={()=>onToggleParts&&onToggleParts(dk,idx)}/>}
                     {/* ★2年前予約の札（2026-11-04。PC の1日表示と同じ並び） */}
                     <Adv2yTags row={r}/>
                     {isOther&&<span style={{fontSize:10,color:'#94a3b8',padding:'1px 5px',background:'#f1f5f9',borderRadius:6}}>{normStore(r.store)==='honten'?'本店':'三田店'}</span>}

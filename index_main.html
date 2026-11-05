@@ -132,7 +132,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.100.0';
+const APP_VERSION = '3.100.1';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -380,6 +380,7 @@ const COURSES = [
 //   ・未注文＝白地にこはく色の丸「部」／注文済み＝緑の丸に白い ✓。押すたびに入れ替わる。
 //   ・予約の1行に parts:true を持つだけ（入庫済み arrived と同じ作り・独立した印）。
 //   ★色と大きさはこの定数で決める。画面に直書きしないこと。
+const PARTS_CHIP_ON=false;        // ★2026-11-05 の不具合報告でいったん止めた（本番のみ・テスト版は true）
 const PARTS_SIZE=22;              // 丸の直径
 const PARTS_OFF_BG='#ffffff';     // 未注文＝白地
 const PARTS_OFF_FG='#b45309';     // 未注文＝こはく色の字と枠
@@ -10344,7 +10345,9 @@ const InspRow=memo(({row,idx,dispNo,dk,onOpenModal,lockInfo,loanerRes,loanerResH
         {plateFull(row)!==''&&<div style={{fontSize:12,fontWeight:800,letterSpacing:'.06em',color:pending||isOverLimit||isCancelled?'#9ca3af':'#0f172a',whiteSpace:'nowrap'}}>ナンバー {plateFull(row)}</div>}</td>
       <td style={TD}>{cObj&&<span style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:20,background:cObj.bg,color:cObj.color,fontWeight:700,fontSize:11,opacity:pending||isOverLimit||isCancelled?0.4:1}}><span style={{width:16,height:16,borderRadius:'50%',background:cObj.color,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:900}}>{cObj.initial}</span>{cObj.name}</span>}
         {/* ★部品注文チェック（マッハ車検の行だけ・2026-11-05 ユーザー決定・A案）。見た目は PartsChip（BLOCK-C の外）が持つ */}
-        {cObj&&cObj.id===1&&!!row.name&&!isCancelled&&<PartsChip on={!!row.parts} onToggle={()=>onToggleParts&&onToggleParts(dk,idx)}/>}
+        {/* ★2026-11-05 現場報告（押すと車検の一覧が消える）でいったん止めた。原因が分かるまで false のまま。
+            ★テスト版（index_dev.html）では出したままにして調べている。ここを戻す時は Kyoshi に確認すること。 */}
+        {PARTS_CHIP_ON&&cObj&&cObj.id===1&&!!row.name&&!isCancelled&&<PartsChip on={!!row.parts} onToggle={()=>onToggleParts&&onToggleParts(dk,idx)}/>}
         {row.phone&&<div style={{fontSize:11,marginTop:3,color:pending||isOverLimit||isCancelled?'#9ca3af':'#0369a1',fontWeight:600,whiteSpace:'nowrap'}}>📞{row.phone}</div>}</td>
       <td style={TD}><span style={{fontSize:12,color:row.rentalLabel?(pending||isOverLimit||isCancelled?'#6b7280':'#065f46'):(pending||isOverLimit||isCancelled?'#6b7280':'#374151'),fontWeight:400}}>
         {/* ★限定（この車でないとダメ）の代車は鍵マークを付ける。最適化で動かない印 */}

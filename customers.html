@@ -20,7 +20,7 @@
   // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
   // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
   // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-  window.__APP_BUILD='build-1794017628370';
+  window.__APP_BUILD='build-1794042708679';
   (function(){
     var RUNNING=window.__APP_BUILD, shown=false, checking=false;
     function runningVer(){
@@ -165,7 +165,7 @@ const hubRenew = async name => {};
 // index側の全画面オーバーレイ（iframe）内で開かれているか。埋め込み時は
 // 「スケジュールに戻る」がページ遷移ではなく親へのpostMessage（オーバーレイ閉鎖）になる。
 const IS_EMBED=(()=>{try{return window.self!==window.top;}catch(e){return true;}})();
-const APP_VERSION='3.101.0'; // 表示用バージョン。更新ごとに上げる（軽微+0.01／大型は整数を上げる）。index_dev.htmlと揃える
+const APP_VERSION='3.103.0'; // 表示用バージョン。更新ごとに上げる（軽微+0.01／大型は整数を上げる）。index_dev.htmlと揃える
 const storKey=(base,sid)=>`${STOR}${sid}-${base}`;
 const CHUNK_SIZE=100;
 // ファイル名をGASキーに使える形に変換
@@ -2768,7 +2768,135 @@ const DmConfirm=({ask,onYes,onNo})=>(
   </div>
 );
 
-const CustomerRow=memo(({customer,onBook,onEditCancel,pending,flash,dmRow,dmSel,onDmDown,onDmOver,dmCanEdit})=>{
+// ═══════════════════════════════════════════
+// ★「✎ 編集」＝帯の色（状態）を選ぶ小さな窓（2026-11-07 ユーザー指示）
+// ═══════════════════════════════════════════
+//   ねらい：2年前にマッハ車検で予約をもらっている方を、担当者がリストを見ながら
+//   青帯（本予約）に変えられるようにする。そのため「✎ 編集」を【すべての行】に付けた。
+//     ・黄（初回車検）… 帯を黄色にして【備考に「初回車検」を入れる】。窓は閉じるだけ
+//     ・緑（仮予約）／青（本予約）… 帯を変えて【予約カードが開く】（入庫日はそちらで入れる）
+//     ・赤（キャンセル）… 【赤帯にするだけ】。理由はこの窓の備考に書く
+//   ★すでに色が付いている行で色を押した時は【確認】を1枚はさむ（押し間違い対策・ユーザー指示）。
+//     まだ色が無い行（未予約）からの初回だけは確認を出さない。
+//   ★「未予約に戻す」は色の一覧に入れない（2026-11-02 の決定：一度キャンセルが点いたら未予約に戻さない）。
+//   ★この窓が書くのは【顧客リストの行だけ】。スケジュール(insp)にも代車にも一切触らない。
+const BAND_ORDER=['new_car','temp','confirm','cancel'];
+// ★同じ色をもう一度押した時に「何もない状態（未予約）に戻せる」色（2026-11-07 ユーザー決定）。
+//   ・黄（初回車検）… 間違えて押した時に戻したい、というのが元の要望
+//   ・赤（キャンセル）… 同上
+//   ★仮予約・本予約は入れない。スケジュールに予約が入っているので、やめる時は
+//     未予約に戻すのではなく【キャンセル】にする（ユーザー判断・2026-11-07）。
+const BAND_REVERT=['new_car','cancel'];
+const BAND_WHAT={new_car:'備考に「初回車検」を入れます',temp:'予約カードが開きます',
+  confirm:'予約カードが開きます',cancel:'赤帯にするだけ（何も開きません）'};
+const BAND_BTN={padding:'8px 16px',borderRadius:8,fontWeight:800,fontSize:13,cursor:'pointer'};
+// ★黄（初回車検）を取り消す時に、黄を選んだ時に入れた「初回車検」も備考から外す（2026-11-07）。
+//   手で書いた他の言葉は残す。区切りの空白だけを片づける。
+const bandStripNewCar=v=>String(v==null?'':v).split('初回車検').join('')
+  .split('　　').join('　').split('  ').join(' ').replace(/^[\s\u3000]+/,'').replace(/[\s\u3000]+$/,'');
+const BandEditModal=({customer,onApply,onSaveNote,onOpenCancelCard,onClose})=>{
+  const [note,setNote]=useState(customer.note||'');
+  const [ask,setAsk]=useState(null);                        // {to:'confirm'} … 確認を出している色
+  const cur=customer.status||'none';
+  const curDef=STATUS_DEF[cur]||STATUS_DEF.none;
+  const hasBooking=!!(customer.linkedInspDate||customer.entryDate);
+  // まだ色が無い行はそのまま。色が付いている行は確認を1枚はさむ
+  // ★同じ色をもう一度押した時は「元に戻しますか？」＝何もない状態（未予約）へ戻す
+  //   （2026-11-07 ユーザー指示。はじめは黄だけの話だったが「他のボタンも同じように」と追加指示）。
+  //   ★これは 2026-11-02 の「一度キャンセルが点いたら未予約には戻さない」を、ユーザーの判断で改めたもの。
+  //     ただし戻せるのは【この窓で同じ色をもう一度押した時】だけ。一覧に「復活」ボタンは戻していない。
+  const pick=k=>{
+    if(cur==='none'){onApply(customer,k,note);return;}
+    setAsk({to:k,revert:(cur===k&&BAND_REVERT.indexOf(k)>=0)});
+  };
+  return(
+    <div data-bandwin="1" style={{position:'fixed',inset:0,background:'rgba(15,23,42,.45)',zIndex:1200,
+      display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{background:'white',borderRadius:14,width:'min(430px,96vw)',overflow:'hidden',
+        boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{padding:'11px 14px',background:'#334155',color:'white',fontWeight:900,fontSize:14}}>
+          ✎ 編集 — {customer.name} 様
+        </div>
+        <div style={{padding:14}}>
+          <p style={{margin:'0 0 10px',fontSize:12,color:'#475569'}}>
+            いまの帯：<b>{curDef.label}</b>　／　帯の色を選んでください。
+          </p>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {BAND_ORDER.map(k=>{const d=STATUS_DEF[k];return(
+              <button key={k} data-bandpick={k} onClick={()=>pick(k)}
+                style={{display:'flex',alignItems:'center',gap:10,borderRadius:9,padding:'9px 11px',
+                  border:`2px solid ${d.btnBorder}`,background:d.btnBg,color:d.btnColor,
+                  fontSize:13.5,fontWeight:900,textAlign:'left',width:'100%',cursor:'pointer',
+                  ...(cur===k?{boxShadow:'0 0 0 4px rgba(14,165,233,.35)'}:{})}}>
+                <span style={{display:'flex',flexDirection:'column',gap:1}}>
+                  <span>{d.label}{cur===k?'（いま）':''}</span>
+                  <span style={{fontSize:11,fontWeight:600,opacity:.85}}>
+                    → {(cur===k&&BAND_REVERT.indexOf(k)>=0)?'もう一度押すと、何もない状態に戻せます'
+                        :BAND_WHAT[k]}</span>
+                </span>
+              </button>);})}
+          </div>
+          <div style={{marginTop:12}}>
+            <label style={{display:'block',fontSize:11.5,fontWeight:800,color:'#334155',marginBottom:3}}>
+              備考（そのまま直せます）</label>
+            <textarea data-bandnote="1" value={note} onChange={e=>setNote(e.target.value)} rows={2}
+              placeholder="例：2年前にマッハで予約／他店で車検を済ませたため"
+              style={{width:'100%',padding:'6px 8px',border:'2px solid #cbd5e1',borderRadius:7,
+                fontSize:13,resize:'vertical',boxSizing:'border-box'}}/>
+          </div>
+          {cur==='cancel'&&(
+            <button data-cxedit="1" onClick={()=>onOpenCancelCard(customer)}
+              style={{marginTop:8,padding:'6px 10px',borderRadius:8,border:'1.5px solid #991b1b',
+                background:'#fee2e2',color:'#991b1b',fontWeight:800,fontSize:11.5,cursor:'pointer'}}>
+              🗒 予約カードで見る（赤いカード）
+            </button>)}
+        </div>
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',padding:'0 14px 14px'}}>
+          <button data-bandclose="1" onClick={onClose}
+            style={{...BAND_BTN,border:'1.5px solid #94a3b8',background:'white',color:'#334155',fontWeight:700}}>やめる</button>
+          <button data-bandnotesave="1" onClick={()=>onSaveNote(customer,note)}
+            style={{...BAND_BTN,border:'none',background:'#0891b2',color:'white'}}>✓ 備考だけ保存</button>
+        </div>
+      </div>
+      {/* ★押し間違いの確認（はい／キャンセル）。色を押した時の「書きかけの備考」は捨てない。 */}
+      {ask&&(
+        <div data-bandask="1" style={{position:'fixed',inset:0,background:'rgba(15,23,42,.45)',zIndex:1300,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'white',borderRadius:14,width:'min(380px,94vw)',overflow:'hidden',
+            boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+            <div style={{padding:'11px 14px',background:'#b45309',color:'white',fontWeight:900,fontSize:14}}>確認</div>
+            <div style={{padding:14,fontSize:13.5,lineHeight:1.8}}>
+              {(ask.revert||ask.to===cur)?<span>この行は すでに <b>{curDef.label}</b> です。</span>
+                                        :<span>押し間違いではありませんか？</span>}
+              <div data-bandasktxt="1" style={{fontSize:15,fontWeight:900,margin:'6px 0'}}>
+                {ask.revert?`${curDef.label} を取り消して、何もない状態（未予約）に戻しますか？`
+                 :ask.to===cur?`もう一度 ${curDef.label} にしますか？`
+                              :`${curDef.label} → ${(STATUS_DEF[ask.to]||{}).label} に変更しますか？`}
+              </div>
+              {ask.revert&&cur==='new_car'&&(
+                <div data-bandrevert="1" style={{fontSize:11.5,fontWeight:700,color:'#78350f'}}>
+                  ※ 備考に入れた「初回車検」も一緒に外します。
+                </div>)}
+              {(ask.to==='cancel'||ask.revert)&&hasBooking&&(
+                <div style={{fontSize:11.5,fontWeight:700,color:'#7f1d1d'}}>
+                  ※ スケジュールに入っている予約は消えません（必要ならスケジュール側で消してください）。
+                </div>)}
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',padding:'0 14px 14px'}}>
+              <button data-bandno="1" onClick={()=>setAsk(null)}
+                style={{...BAND_BTN,border:'1.5px solid #94a3b8',background:'white',color:'#334155',fontWeight:700}}>キャンセル</button>
+              <button data-bandyes="1" onClick={()=>{const a=ask;setAsk(null);
+                  onApply(customer,a.revert?'none':a.to,
+                    (a.revert&&cur==='new_car')?bandStripNewCar(note):note);}}
+                style={{...BAND_BTN,border:'none',background:'#0891b2',color:'white'}}>
+                {ask.revert?'はい、元に戻す':'はい'}</button>
+            </div>
+          </div>
+        </div>)}
+    </div>);
+};
+
+const CustomerRow=memo(({customer,onBook,onEditBand,pending,flash,dmRow,dmSel,onDmDown,onDmOver,dmCanEdit})=>{
   const st=STATUS_DEF[customer.status]||STATUS_DEF.none;
   const courseObj=COURSES.find(c=>c.id===Number(customer.course));
   const isCancelled=customer.status==='cancel';
@@ -2778,22 +2906,23 @@ const CustomerRow=memo(({customer,onBook,onEditCancel,pending,flash,dmRow,dmSel,
       {/* ＋予約ボタン ＋ 満期日 */}
       <td style={{padding:'7px 6px',whiteSpace:'nowrap',verticalAlign:'middle'}}>
         <div style={{display:'flex',alignItems:'center',gap:5}}>
-          {/* ★キャンセル（赤帯）の行は「✎ 編集」（2026-11-02 ユーザー指示）。
-              押すと同じ予約カードが赤い背景で開き、備考にキャンセルの理由を書ける。
-              ★「↩ 復活」（未予約に戻す）は廃止。もう一度予約を取る時は「再予約」を使う。 */}
-          <button data-cxedit={isCancelled?'1':undefined} onClick={()=>isCancelled?onEditCancel(customer):onBook(customer)}
+          {/* ★左＝「✎ 編集」（2026-11-07 ユーザー指示。すべての行に付ける）。
+              押すと帯の色（状態）を選ぶ小さな窓が開く。備考もここで直せる。
+              ★右＝状態のボタン。押すと今までどおり予約カード（未予約・初回車検＝＋予約／
+              仮予約・本予約＝その字／キャンセル＝再予約）。
+              ★ボタンの置き場所は今までどおり【一番左の列】のまま（2026-11-07 ユーザー指示）。 */}
+          <button data-bandedit="1" onClick={()=>onEditBand(customer)}
+            style={{padding:'4px 9px',borderRadius:8,border:'1.5px solid #64748b',
+              background:'white',color:'#1f2937',fontWeight:700,fontSize:11,whiteSpace:'nowrap',
+              minWidth:62,cursor:'pointer'}}>
+            ✎ 編集
+          </button>
+          <button data-bandstatus={customer.status||'none'} onClick={()=>onBook(customer)}
             style={{padding:'4px 9px',borderRadius:8,border:`1.5px solid ${st.btnBorder}`,
               background:st.btnBg,color:st.btnColor,fontWeight:700,fontSize:11,whiteSpace:'nowrap',
-              minWidth:62}}>
-            {isCancelled?'✎ 編集':customer.status==='none'?'＋予約':st.label}
+              minWidth:62,cursor:'pointer'}}>
+            {isCancelled?'再予約':(customer.status==='none'||customer.status==='new_car')?'＋予約':st.label}
           </button>
-          {isCancelled&&(
-            <button onClick={()=>onBook(customer)}
-              style={{padding:'4px 7px',borderRadius:8,border:'1.5px solid #86efac',
-                background:'#dcfce7',color:'#16a34a',fontWeight:700,fontSize:10,whiteSpace:'nowrap'}}>
-              再予約
-            </button>
-          )}
           <span style={{fontSize:11,color:'#111827',fontWeight:customer.expiry?600:400}}>
             {fmtDate(customer.expiry)}
           </span>
@@ -2855,6 +2984,47 @@ const toDk=d=>{if(!d)return'';const p=String(d).split('-');return p.length===3?`
 const SYNC_FROM_DK='2026-9-22';
 const _dkNum=dk=>{const p=String(dk||'').split('-');return p.length<3?0:Number(p[0])*10000+Number(p[1])*100+Number(p[2]);};
 const inSyncRange=d=>{const dk=toDk(d);return !!dk&&_dkNum(dk)>=_dkNum(SYNC_FROM_DK);};
+
+// ═══ 同期チェックの照合（2026-11-07・本番で102件の誤検出が出たのを直した時に作った）═══
+//  ★①【保管箱も見る】14日より前の車検は insp から insp-arch へ移してある（画面は両方を合体して出す）。
+//    insp だけを見ていたので、9月〜10月の予約が全部「反映漏れ」になっていた（102件のうち94件）。
+//    毎日1日ぶんが保管箱へ移るので、放っておくと件数が毎日増えていく。
+//  ★②【手打ちの行も拾う】スケジュールに手で入れた行は氏名の書き方が違う
+//    （「白石」だけ／「藤原資材」だけ／「◯◯様」）。custId も無い。
+//    ナンバー下4桁か車種が合っている時にかぎって、氏名の部分一致も同じ人とみなす。
+//    ★氏名だけで同じ人と決めないこと（別人を「反映済み」と見なしてしまう）。
+//  ★③【別の日に予約がある人は数えない】日にちを動かした時の古い控え（custbk）の残り。
+const syncNm=s=>String(s==null?'':s).replace(/[s　]/g,'')
+  .replace(/(様|さま|サマ|御中|殿)$/,'')
+  .replace(/(株式会社|有限会社|合同会社|(株)|（株）|(有)|（有）)/g,'');
+const _SKANA='ァィゥェォャュョ',_BKANA='アイウエオヤユヨ';
+const syncCar=s=>String(s==null?'':s).replace(/[s　]/g,'')
+  .replace(/[ァィゥェォャュョ]/g,m=>_BKANA[_SKANA.indexOf(m)])
+  .replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).toUpperCase();
+const syncNo=s=>String(s==null?'':s).replace(/[^0-9]/g,'');
+// その予約行とこの顧客が同じ人か
+const syncSameRow=(r,c)=>{
+  if(!r||!c)return false;
+  if(r.custId&&c.custId&&r.custId===c.custId)return true;
+  const rn=syncNm(r.name),cn=syncNm(c.name);
+  if(!rn||!cn)return false;
+  if(rn===cn)return true;
+  const short=rn.length<cn.length?rn:cn, long=rn.length<cn.length?cn:rn;
+  if(short.length<2||long.indexOf(short)<0)return false;   // 片方がもう片方を含んでいる時だけ
+  const rNo=syncNo(r.no),cNo=syncNo(c.no);
+  const rCar=syncCar(r.carType),cCar=syncCar(c.carType);
+  return !!((rNo&&rNo===cNo)||(rCar&&rCar===cCar));        // ★ナンバーか車種の裏付けが要る
+};
+// その日の生きている行（insp＋保管箱）
+const syncRowsOf=(insp,arch,dk)=>[...(((insp&&insp[dk])||[])),...(((arch&&arch[dk])||[]))]
+  .filter(r=>r&&r.bookingStatus!=='cancelled'&&r.name);
+const syncHas=(insp,arch,dk,c)=>syncRowsOf(insp,arch,dk).some(r=>syncSameRow(r,c));
+// その人が【別の日】に予約を持っていないか（持っていれば入庫日のズレ＝反映漏れではない）
+const syncOtherDay=(insp,arch,c,skipDk)=>{
+  const dks=new Set([...Object.keys(insp||{}),...Object.keys(arch||{})]);
+  for(const dk of dks){ if(dk===skipDk)continue; if(syncHas(insp,arch,dk,c))return dk; }
+  return '';
+};
 
 // ═══════════════════════════════════════════
 // メインアプリ
@@ -3148,6 +3318,40 @@ const App=()=>{
   const openCancelEdit=useCallback((customer)=>{
     setCancelEdit(true);
     setBookingModal(customer);
+  },[]);
+  // ★「✎ 編集」＝帯の色（状態）を選ぶ窓（2026-11-07 ユーザー指示）。すべての行に付けてある。
+  const [bandEdit,setBandEdit]=useState(null);
+  const openBandEdit=useCallback((customer)=>{setBandEdit(customer);},[]);
+  // 帯の色を変える。★書くのは【顧客リストの行だけ】＝スケジュール(insp)にも代車にも触らない。
+  //   黄（初回車検）は備考に「初回車検」を入れる。緑・青はこのあと予約カードが開くので、
+  //   入庫日・コース・代車はそちらで入れて保存する。
+  const applyBand=useCallback((customer,status,note)=>{
+    let n=String(note==null?'':note);
+    if(status==='new_car'&&n.indexOf('初回車検')<0)n=(n?n+'　':'')+'初回車検';
+    const updated={...customer,status,note:n};
+    setFiles(prev=>prev.map(f=>{
+      const ci=f.customers.findIndex(c=>c.custId===customer.custId);
+      if(ci<0)return f;
+      const custs=[...f.customers];
+      custs[ci]=updated;
+      saveFileChunked({...f,customers:custs});
+      return{...f,customers:custs};
+    }));
+    setBandEdit(null);
+    if(status==='temp'||status==='confirm')openBookingModal(updated);
+  },[openBookingModal]);
+  // 色は変えずに備考だけ保存する
+  const saveBandNote=useCallback((customer,note)=>{
+    const updated={...customer,note:String(note==null?'':note)};
+    setFiles(prev=>prev.map(f=>{
+      const ci=f.customers.findIndex(c=>c.custId===customer.custId);
+      if(ci<0)return f;
+      const custs=[...f.customers];
+      custs[ci]=updated;
+      saveFileChunked({...f,customers:custs});
+      return{...f,customers:custs};
+    }));
+    setBandEdit(null);
   },[]);
   const [closedDaysH,setClosedDaysH]=useState([]);
   const [closedDaysS,setClosedDaysS]=useState([3]);
@@ -4132,25 +4336,27 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
   const handleSyncCheck=useCallback(async()=>{
     setSyncing(true);
     try{
-      // GASから全ファイルとinspDataを直接取得（キャッシュ不使用）
-      const [latestInsp,fileIndex]=await Promise.all([
+      // サーバーから全ファイルとinspDataを直接取得（キャッシュ不使用）
+      // ★保管箱（insp-arch）も必ず一緒に読むこと（2026-11-07）。読まないと9月〜10月が全部「漏れ」になる。
+      const [latestInsp,latestArch,fileIndex]=await Promise.all([
         sGet(STOR+'insp').then(v=>v||{}),
+        sGet(STOR+'insp-arch').then(v=>v||{}).catch(()=>({})),
         sGet(STOR+'cf-index').then(v=>v||[]),
       ]);
       const allFiles=await Promise.all(fileIndex.map(fi=>loadFileChunked(fi.name).catch(()=>null)));
       const allCusts=allFiles.filter(Boolean).flatMap(f=>f.customers||[]);
       const confirmedWithDate=allCusts.filter(c=>c.status==='confirm'&&c.entryDate&&inSyncRange(c.entryDate));
-      const notInInsp=c=>{
+      // 照合は syncHas（insp＋保管箱・手打ちの行も拾う）。理由（_why）を1件ずつ付ける。
+      const missing=[];
+      confirmedWithDate.forEach(c=>{
         const dk=toDk(c.entryDate);
-        if(!dk)return false;
-        // cancelledを除いた行で照合。custId一致 or 氏名一致（再インポートでcustIdが変わった場合の対策）
-        const activeRows=(latestInsp[dk]||[]).filter(r=>r&&r.bookingStatus!=='cancelled');
-        return!activeRows.some(r=>
-          (r.custId&&r.custId===c.custId)||
-          (r.name&&r.name===c.name)
-        );
-      };
-      const missing=confirmedWithDate.filter(notInInsp);
+        if(!dk)return;
+        if(syncHas(latestInsp,latestArch,dk,c))return;
+        const other=syncOtherDay(latestInsp,latestArch,c,dk);
+        // ★別の日に予約がある＝入庫日がずれているだけ。足すと二重予約になるので自動では直さない。
+        missing.push(other?{...c,_why:'別の日（'+other.replace(/-/g,'/')+'）に予約があります',_noFix:true}
+                          :{...c,_why:'スケジュールに予約がありません'});
+      });
       // ★顧客ファイルへの保存ごと失敗した予約は、リスト側が'confirm'にならないので上のチェックには
       //   絶対に引っかからない（阪上さんのケース）。予約時の控え(pending)とカレンダー用のcustbkも
       //   突き合わせ、スケジュールに無いものを未反映として拾う。
@@ -4160,10 +4366,13 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
       pendLoad().forEach(p=>{
         if(!p.dk||!p.row)return;
         if(!inSyncRange(p.cust&&p.cust.entryDate||p.dk))return;   // 見はじめより前は数えない
-        if(inspHasCust(latestInsp,p.dk,p.custId,p.name))return;
+        const _pc={custId:p.custId,name:p.name,no:p.no,carType:p.row.carType};
+        if(syncHas(latestInsp,latestArch,p.dk,_pc))return;
+        if(syncOtherDay(latestInsp,latestArch,_pc,p.dk))return;   // ★③ 別の日に予約あり＝控えの残り
         pushExtra({...(p.cust||{}),custId:p.custId,name:p.name,no:p.no,carType:p.row.carType,
           course:p.row.course,store:p.row.store,staff:p.row.staff,tokuten:p.row.tokuten,note:p.row.note,
-          bookingTime:p.row.bookingTime,entryDate:p.cust?.entryDate||p.dk,_src:'この端末の予約控え'});
+          bookingTime:p.row.bookingTime,entryDate:p.cust?.entryDate||p.dk,
+          _src:'この端末の予約控え',_why:'この端末の予約控えに残っています'});
       });
       let custbk={};
       try{custbk=(await sGet(STOR+'custbk'))||{};}catch(e){}
@@ -4171,11 +4380,13 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
         if(!e||e.status!=='confirmed'||!e.dk||!e.formData)return;
         if(!inSyncRange(e.dk))return;                              // 見はじめより前は数えない
         const f=e.formData;
-        if(inspHasCust(latestInsp,e.dk,f.custId,f.name))return;
+        if(syncHas(latestInsp,latestArch,e.dk,f))return;
+        if(syncOtherDay(latestInsp,latestArch,f,e.dk))return;      // ★③ 別の日に予約あり＝控えの残り
         pushExtra({custId:f.custId,name:f.name,no:f.no,carType:f.carType,course:f.course,store:f.store,
-          staff:f.staff,tokuten:f.tokuten,note:f.note,bookingTime:f.time,entryDate:e.dk,_src:'カレンダー仮登録(custbk)'});
+          staff:f.staff,tokuten:f.tokuten,note:f.note,bookingTime:f.time,entryDate:e.dk,
+          _src:'カレンダー仮登録(custbk)',_why:'カレンダーの仮登録（custbk）に残っています'});
       });
-      setSyncDialog({missing:[...missing,...extra],total:confirmedWithDate.length+extra.length,latestInsp});
+      setSyncDialog({missing:[...missing,...extra],total:confirmedWithDate.length+extra.length,latestInsp,latestArch});
     }catch(e){alert('GASからのデータ取得に失敗しました: '+(e.message||e));}
     finally{setSyncing(false);}
   },[]);
@@ -4185,18 +4396,23 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
     setSyncing(true);
     try{
       let newInspData={...(await sGet(STOR+'insp')||{})};
+      // ★保管箱も読む（2026-11-07）。保管箱にしか無い日へ insp に1件足すと、画面の合体
+      //   （{...保管箱, ...insp}）で insp 側が勝ち、その日の予約が丸ごと画面から消える。
+      const archNow=await sGet(STOR+'insp-arch').then(v=>v||{}).catch(()=>({}));
       const sizeBefore=JSON.stringify(newInspData).length;
-      let added=0;
+      let added=0,skipped=0;
+      const skipNames=[];
       const toAdd=[];
       for(const c of syncDialog.missing){
         const dk=toDk(c.entryDate);
         if(!dk)continue;
+        // ★別の日に予約がある人（入庫日のズレ）は足さない＝二重予約になる
+        if(c._noFix){skipped++;skipNames.push(c.name+'（'+(c._why||'')+'）');continue;}
+        if(archNow[dk]&&!(Array.isArray(newInspData[dk])&&newInspData[dk].length>0)){
+          skipped++;skipNames.push(c.name+'（'+dk.replace(/-/g,'/')+'＝保管箱の日なので手で入れてください）');continue;
+        }
         if(!Array.isArray(newInspData[dk]))newInspData[dk]=[];
-        const activeRows=newInspData[dk].filter(r=>r&&r.bookingStatus!=='cancelled');
-        if(activeRows.some(r=>
-          (r.custId&&r.custId===c.custId)||
-          (r.name&&r.name===c.name)
-        ))continue;
+        if(syncRowsOf(newInspData,archNow,dk).some(r=>syncSameRow(r,c)))continue;
         const courseNum=Number(c.course)||0;
         const idx=newInspData[dk].length;
         newInspData[dk]=[...newInspData[dk],{
@@ -4219,21 +4435,25 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
       toAdd.forEach(({dk,idx})=>{newInspData[dk]=applyMahPendingRule(newInspData[dk],idx);});
       const sizeAfter=Math.round(JSON.stringify(newInspData).length/1024);
       const sizeBeforeKB=Math.round(sizeBefore/1024);
+      // ★足す分が無い時は1文字も書かない（全部が「自動では直さない」分だった場合）
+      if(added===0){
+        setSyncDialog(prev=>({...prev,fixed:true,addedCount:0,writeOk:true,verified:0,skipped,skipNames,
+          diagMsg:'スケジュールに足す分はありませんでした（書き込みなし）'}));
+        setSyncing(false);
+        return;
+      }
       await sSet(STOR+'insp',newInspData);
 
       // sSetはno-corsのため成否不明。3秒後に読み返して確認する
       await new Promise(r=>setTimeout(r,3000));
       const readBack=await sGet(STOR+'insp')||{};
-      const verified=toAdd.filter(({c,dk})=>{
-        const rows=(readBack[dk]||[]).filter(r=>r&&r.bookingStatus!=='cancelled');
-        return rows.some(r=>(r.custId&&r.custId===c.custId)||(r.name&&r.name===c.name));
-      }).length;
+      const verified=toAdd.filter(({c,dk})=>syncRowsOf(readBack,null,dk).some(r=>syncSameRow(r,c))).length;
       const writeOk=toAdd.length>0&&verified===toAdd.length;
 
       setInspData(writeOk?readBack:newInspData);
       if(writeOk)inspWriteRef.current=Date.now();
-      setSyncDialog(prev=>({...prev,fixed:true,addedCount:added,writeOk,verified,
-        diagMsg:`データサイズ: ${sizeBeforeKB}KB → ${sizeAfter}KB（追加${added}件・確認${verified}件）`}));
+      setSyncDialog(prev=>({...prev,fixed:true,addedCount:added,writeOk,verified,skipped,skipNames,
+        diagMsg:`データサイズ: ${sizeBeforeKB}KB → ${sizeAfter}KB（追加${added}件・確認${verified}件${skipped?'・見送り'+skipped+'件':''}）`}));
     }catch(e){alert('修復に失敗しました: '+(e.message||e));}
     finally{setSyncing(false);}
   },[syncDialog,inspLimits]);
@@ -4642,7 +4862,7 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
                   {search||filterStatus!=='all'?'条件に一致する顧客がいません':'データがありません'}
                 </td></tr>
               ):filtered.map((c,i)=>(
-                <CustomerRow key={c.custId} customer={c} onBook={openBookingModal} onEditCancel={openCancelEdit}
+                <CustomerRow key={c.custId} customer={c} onBook={openBookingModal} onEditBand={openBandEdit}
                   pending={pendingSync[c.custId]||pendingSync[`${c.name}__${c.no}`]||null}
                   flash={!!(recentApplied[c.custId]||recentApplied[`${c.name}__${c.no}`])}
                   dmRow={i} dmSel={dmSelOf(i)} onDmDown={handleDmDown} onDmOver={handleDmOver} dmCanEdit={dmCanEdit}/>
@@ -4665,6 +4885,9 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
               syncDialog.writeOk?(
                 <>
                   <div style={{fontWeight:800,fontSize:18,color:'#16a34a'}}>✅ 修復完了・GAS保存確認</div>
+                  {syncDialog.skipped>0&&(<div data-syncskip="1" style={{fontSize:12,color:'#92400e',background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:6,padding:'7px 10px'}}>
+                    自動では直さなかった分 {syncDialog.skipped}件：{(syncDialog.skipNames||[]).join('／')}
+                  </div>)}
                   <div style={{fontSize:14,color:'#374151'}}>{syncDialog.addedCount}件をスケジュールに追加しました。</div>
                   <div style={{fontSize:12,color:'#6b7280'}}>{syncDialog.diagMsg}</div>
                   <div style={{fontSize:12,color:'#6b7280'}}>スケジュール画面を強制リロードすると反映されます。</div>
@@ -4702,11 +4925,14 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
                 <div style={{fontWeight:800,fontSize:18,color:'#dc2626'}}>⚠️ {syncDialog.missing.length}件の反映漏れを検出</div>
                 <div style={{fontSize:13,color:'#6b7280'}}>入庫日あり・本予約ステータスだが、スケジュールへの反映が確認できない顧客です。（全{syncDialog.total}件中）</div>
                 <div style={{fontSize:12,color:'#9ca3af'}}>入庫日が {SYNC_FROM_DK.replace(/-/g,'/')} 以降の分を見ています（スケジュールを使い始めた日より前は数えません）。</div>
+                <div data-syncnote="1" style={{fontSize:12,color:'#166534',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:6,padding:'7px 10px'}}>
+                  14日より前の予約（保管箱）も見ています。スケジュールに手で入れた行（氏名が短い・「様」付き）も、ナンバーか車種が合えば反映済みとして扱います。
+                </div>
                 <div style={{overflowY:'auto',flex:1,border:'1px solid #e5e7eb',borderRadius:8}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                     <thead>
                       <tr>
-                        {['氏名','No.','入庫日','コース','店舗'].map(h=>(
+                        {['氏名','No.','入庫日','コース','店舗','なぜ出ているか'].map(h=>(
                           <th key={h} style={{padding:'6px 10px',background:'#f8fafc',fontWeight:700,textAlign:'left',borderBottom:'1px solid #e5e7eb',position:'sticky',top:0}}>
                             {h}
                           </th>
@@ -4721,6 +4947,7 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
                           <td style={{padding:'5px 10px',fontWeight:700,color:'#1d4ed8'}}>{c.entryDate}</td>
                           <td style={{padding:'5px 10px'}}>{c.course||'—'}</td>
                           <td style={{padding:'5px 10px'}}>{c.store==='sanda'?'三田店':'本店'}</td>
+                          <td data-syncwhy="1" style={{padding:'5px 10px',color:c._noFix?'#b45309':'#374151',fontWeight:c._noFix?700:400}}>{c._why||'—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -4740,6 +4967,17 @@ ${failed.length?failed.map(n=>'「'+n+'」').join('、'):'一覧の更新に失�
             )}
           </div>
         </div>
+      )}
+
+      {/* ── 「✎ 編集」＝帯の色を選ぶ窓（2026-11-07） ── */}
+      {bandEdit&&(
+        <BandEditModal
+          customer={bandEdit}
+          onApply={applyBand}
+          onSaveNote={saveBandNote}
+          onOpenCancelCard={(c)=>{setBandEdit(null);openCancelEdit(c);}}
+          onClose={()=>setBandEdit(null)}
+        />
       )}
 
       {/* ── 予約モーダル ── */}

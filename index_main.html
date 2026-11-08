@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- fixed-holiday-1778028748861 force-deploy-1794099035266 -->
+<!-- fixed-holiday-1778028748861 force-deploy-1794128562127 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -22,7 +22,7 @@
     // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
     // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
     // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-    window.__APP_BUILD='build-1794099035266';
+    window.__APP_BUILD='build-1794128562127';
     (function(){
       var RUNNING=window.__APP_BUILD, shown=false, checking=false;
       function runningVer(){
@@ -132,7 +132,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.104.0';
+const APP_VERSION = '3.105.1';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -474,6 +474,11 @@ const CALBANG_YEL  = '#fff200'; // まだ承認されていない時の黄色（
 const CALBANG_GRN  = '#22c55e'; // 承認は済んでいる時の緑
 const DASHBANG     = 23;        // ダッシュボードのボタンに出る「！」の直径（px）
 const WBANG        = 16;        // 週間カレンダーの車検バッジに出る「！」の直径（px）
+// ★週間カレンダーを【畳んだ時】、予定が多くても1画面に全部収める倍率の下限（v3.105.0・2026-11-08 ユーザー指示）。
+//   畳んだ状態は「一目で仕事量が分かる」ための姿なので、予定が増えて下へ隠れるのは目的に反する。
+//   入りきらない時だけ、表ぜんぶを【ちょうど収まる倍率】に縮めて出す（純粋なズーム。字の大きさの決めごとは触らない）。
+//   これより小さくしないと入らない時は、縮めすぎず上下スクロールに戻す（字が読めなくなるため）。
+const WFIT_MIN     = 0.5;
 // 休業日セルの中央に置くラベル（topOffset=日付表示の下から始める）
 const ClosedMark = ({small,topOffset=26})=>(
   <div style={{position:'absolute',left:6,right:6,top:topOffset,bottom:6,display:'flex',alignItems:'center',
@@ -4788,6 +4793,63 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
     window.addEventListener('resize',measure);
     return()=>{ try{ro&&ro.disconnect(); }catch(e){} window.removeEventListener('resize',measure); };
   },[isOpen,weekStart,storeId]);
+  // ★★畳んだ状態は【予定が多くても、上下にスクロールせず1画面で全部見える】（v3.105.0・2026-11-08 ユーザー指示）。
+  //   「週間カレンダーは一目で仕事量が分かるように作った画面」なので、畳んだのに下へ隠れるのは目的に反する。
+  //   やり方＝入りきらない時だけ、表ぜんぶを【ちょうど収まる倍率】に縮めて出す（純粋なズーム）。
+  //   ★字の大きさ・行の高さの指定（BIG）は触らない＝広げた時の見た目も、v3.99.0 の「畳んだ時は大きく」もそのまま。
+  //   ★倍率は 1 を超えない＝足りている週はこれまでどおり（表を高さいっぱいに伸ばす）。
+  //   ★据え置きの表（午後入庫・時間未定）も【同じ倍率】で縮めること。片方だけ縮めると列がズレる。
+  //   ★測り方：縮める前の寸法（offsetHeight は transform の影響を受けない）で
+  //     「入れたい高さ」＝本体の表＋据え置きの表、「使える高さ」＝スクロール枠＋据え置きの帯。
+  //     縮めている時の表は height:auto＝いつでも『本当の高さ』が測れるので、増えても減っても1回で落ち着く。
+  const wtbRef=useRef(null);     // 本体の表
+  const wfootRef=useRef(null);   // 据え置きの帯（外側）
+  const wfootTbRef=useRef(null); // 据え置きの表そのもの
+  const [fit,setFit]=useState(1);
+  const [footH,setFootH]=useState(0);
+  const [mainH,setMainH]=useState(0);
+  // ★★【重要】倍率を変えると、表の【CSS上の横幅】も変わる（width を 100/倍率 ％にしているため）。
+  //   横幅が変われば字やバッジの折り返しが変わり、**高さも変わる**。
+  //   そのため『ちょうど収まる倍率』を素直に計算すると、2つの値を行ったり来たりして止まらなくなる
+  //   （2026-11-08 現場報告：過去の週で 0.845 ⇄ 0.784 を往復し、React が「更新が止まらない」で画面ごと落ちた）。
+  //   ★直し＝ひとつの週・ひとつの窓の大きさの中では【倍率を下げる方へしか動かさない】。
+  //     下げる方へだけなら必ず数回で止まり、止まった所は必ず『入りきる』倍率になる。
+  //     週を変える・店を変える・畳む/広げる・窓の大きさを変える・予定そのものが変わった時は、
+  //     1 からやり直す（run.key）。★この決まりを外さないこと。外すと画面が落ちる。
+  const run=useRef({key:'',f:1,n:0});
+  const fitRef=useRef(1); fitRef.current=folded?fit:1;
+  useLayoutEffect(()=>{
+    const el=scRef.current, tb=wtbRef.current;
+    if(!isOpen||!el||!tb)return;
+    const measure=()=>{
+      if(!folded){ setFit(f=>f===1?f:1); return; }
+      const fo=wfootRef.current, ft=wfootTbRef.current;
+      const fn=ft?ft.offsetHeight:0, mn=tb.offsetHeight;
+      setMainH(v=>v===mn?v:mn);
+      setFootH(v=>v===fn?v:fn);
+      // 据え置きの帯は上に3pxの太線があるので、少しだけ余裕をみる
+      const space=el.clientHeight+(fo?fo.offsetHeight:0)-(fo?4:0);
+      const need=mn+fn;
+      if(space<=0||need<=0)return;
+      // ★やり直しの合図（週・店・畳み・窓の大きさ・予定の中身）。
+      //   ここに『枠の高さ』を入れないこと＝据え置きの帯は倍率で縮むので、自分で自分をやり直させてしまう。
+      const key=[weekStart?weekStart.getTime():0,storeId,folded?1:0,
+        (typeof window!=='undefined'?window.innerWidth+'x'+window.innerHeight:''),
+        tb.rows.length,(tb.textContent||'').length].join('|');   // textContent＝並べ直しを起こさない
+      if(run.current.key!==key){ run.current={key:key,f:1,n:0}; }
+      if(run.current.n>12)return;            // 念のための止め（ここへは来ない作りだが、絶対に回り続けさせない）
+      let f=Math.min(run.current.f,space/need);   // ★下げる方へだけ
+      f=(f>=0.995)?1:Math.max(WFIT_MIN,Math.floor(f*1000)/1000);
+      if(Math.abs(f-run.current.f)>=0.002)run.current.n++;
+      run.current.f=f;
+      setFit(v=>Math.abs(v-f)<0.002?v:f);
+    };
+    measure();
+    let ro=null;
+    try{ ro=new ResizeObserver(measure); ro.observe(el); }catch(e){}
+    window.addEventListener('resize',measure);
+    return()=>{ try{ro&&ro.disconnect();}catch(e){} window.removeEventListener('resize',measure); };
+  });
   // ★入庫制限の斜めゼブラ：枠の境目で模様がズレないよう、表の左上からの位置ぶんだけ背景をずらす。
   //   （背景1枚の大きさは ZB_STY で固定済み＝どの枠でも同じ位相になっている）
   //   依存を書かない＝描き直すたびに測り直す。スクロールでは表ごと動くので測り直しは要らない。
@@ -4798,7 +4860,9 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
     const mod=(v)=>(((v%ZB_P)+ZB_P)%ZB_P);
     root.querySelectorAll('[data-wzb="1"]').forEach(td=>{
       const r=td.getBoundingClientRect();
-      td.style.backgroundPosition=(-mod(r.left-base.left)).toFixed(2)+'px '+(-mod(r.top-base.top)).toFixed(2)+'px';
+      // ★縮めて出している時は、測った値も縮んでいるので倍率で割って戻す（割らないと模様の位相がズレる）
+      const z=fitRef.current||1;
+      td.style.backgroundPosition=(-mod((r.left-base.left)/z)).toFixed(2)+'px '+(-mod((r.top-base.top)/z)).toFixed(2)+'px';
     });
   });
   if(!isOpen||!weekStart)return null;
@@ -4839,6 +4903,8 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
   //   C案＝① 表の高さを画面いっぱいに伸ばす ② 字とバッジを大きく ③ 整備は「氏名／内容」の2段。
   //   ★広げた時（folded=false）の見た目は一切変えない＝BIG を通さない所は触らないこと。
   const BIG=folded;
+  // ★畳んでいて入りきらない時の倍率（1＝そのまま）。広げている時は必ず 1＝今までどおりスクロール。
+  const fitv=folded?fit:1;
   const TH={padding:'5px 4px',fontSize:BIG?12.5:11,fontWeight:800,whiteSpace:'nowrap',border:'1px solid '+WLINE,
     background:'#f1f5f9',position:'sticky',top:0,zIndex:4};
   const TD={border:'1px solid '+WLINE,padding:'1px 3px',fontSize:BIG?14:11.5,verticalAlign:'middle',height:26};
@@ -5218,13 +5284,26 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
             </div>
           );
         })()}
-        <div ref={scRef} style={{flex:1,minHeight:0,overflow:'auto'}}>
+        {/* ★縮めている間は上下に動かさない（はしたのズレでスクロールバーが出ると、
+            枠の横幅が変わって字の折り返しが変わり、また倍率が動く＝行ったり来たりの元になる）。
+            下限（WFIT_MIN）まで縮めても入らない時だけ、今までどおりスクロールできるようにする。 */}
+        <div ref={scRef} data-wscroll="1" style={{flex:1,minHeight:0,
+          overflowX:'auto',overflowY:(fitv<1&&fitv>WFIT_MIN)?'hidden':'auto'}}>
           {/* ★余った高さは行に配らせる（2026-10-23 ユーザー指示：表を最大限に使う）。
               td の height:26 は最低の高さとして効く */}
           {/* ★畳んでいる時も高さを伸ばす（v3.99.0・2026-11-04 ユーザー決定・C案）。
               2026-10-29 は「畳んだ時は伸ばさない」としていたが、下に余白が大きく出るとの指摘で逆にした。
               間延びしないよう、畳んでいる時は BIG で字とバッジも大きくしてある。★元に戻さないこと。 */}
-          <table style={{borderCollapse:'collapse',width:'100%',height:'100%',minWidth:980,tableLayout:'fixed'}}>
+          {/* ★畳んだ時に入りきらない分は、この箱ごと縮めて1画面に収める（v3.105.0・上の WFIT_MIN の項を見ること）。
+              横は width を 100/倍率 ％にしてから縮める＝見た目の横幅は変わらない（純粋なズーム）。
+              縮めている時だけ表の height:'100%' を外す＝『本当の高さ』が測れるようにするため。 */}
+          {/* 外の枠＝縮めた後の高さ。これが無いと、縮めても枠は『縮める前の高さ』のままで
+              何も無い所へスクロールできてしまう（transform は配置を変えないため） */}
+          <div style={fitv<1?{height:Math.floor(mainH*fitv),overflow:'hidden'}:{height:'100%'}}>
+          <div data-wfit={fitv<1?String(fitv):'1'} style={fitv<1
+            ?{width:(100/fitv).toFixed(4)+'%',transform:'scale('+fitv+')',transformOrigin:'top left'}
+            :{height:'100%'}}>
+          <table ref={wtbRef} style={{borderCollapse:'collapse',width:'100%',height:fitv<1?'auto':'100%',minWidth:980,tableLayout:'fixed'}}>
             <thead>
               <tr>
                 <th style={{...TH,width:54,minWidth:54}}></th>
@@ -5390,6 +5469,8 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
               )}
             </tbody>
           </table>
+          </div>
+          </div>
         </div>
         {/* ★「午後入庫」「入庫未定」は**スクロールする表の外**に据え置く（2026-10-23 ユーザー指示）。
             以前は sticky で貼り付けていたが、スクロールすると上の予定の字が重なって読めなくなった。
@@ -5400,12 +5481,16 @@ const WeekScheduleModal = memo(({isOpen,onClose,weekStart,onWeek,fromToday,onFro
           const pins=folded?WEEK_PIN.filter(slotHasAny):WEEK_PIN;
           if(!pins.length)return null;
           return (
-            <div data-wfoot="1" style={{flexShrink:0,borderTop:'3px solid #94a3b8',background:'white',paddingRight:sbw}}>
-              <table style={{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}}>
-                <tbody>
-                  {pins.map((slot,ix)=>slotRow(slot,ix===pins.length-1))}
-                </tbody>
-              </table>
+            <div data-wfoot="1" ref={wfootRef} style={{flexShrink:0,borderTop:'3px solid #94a3b8',background:'white',
+                ...(fitv<1?{height:Math.floor(footH*fitv),overflow:'hidden'}:{paddingRight:sbw})}}>
+              {/* ★本体と【同じ倍率】で縮める。片方だけ縮めると列がズレる（v3.105.0） */}
+              <div style={fitv<1?{width:(100/fitv).toFixed(4)+'%',transform:'scale('+fitv+')',transformOrigin:'top left'}:null}>
+                <table ref={wfootTbRef} style={{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}}>
+                  <tbody>
+                    {pins.map((slot,ix)=>slotRow(slot,ix===pins.length-1))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           );
         })()}

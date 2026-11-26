@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- fixed-holiday-1778028748861 force-deploy-1795486173619 -->
+<!-- fixed-holiday-1778028748861 force-deploy-1795664601629 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -22,7 +22,7 @@
     // 開きっぱなしのタブが旧コードのまま動き続けるのを防ぐ。画面復帰時と定期に自分自身を
     // no-store+クエリ付きで取得し、__APP_BUILD が変わっていれば「更新」バナーを表示する。
     // 本番デプロイ時は port_to_main.js が __APP_BUILD を自動更新する（手動更新不要）。
-    window.__APP_BUILD='build-1795486173619';
+    window.__APP_BUILD='build-1795664601629';
     (function(){
       var RUNNING=window.__APP_BUILD, shown=false, checking=false, vretry=0;
       function runningVer(){
@@ -137,7 +137,7 @@
 const { useState, useEffect, useLayoutEffect, useRef, useCallback, memo, useMemo } = React;
 
 // ★ バージョン管理：アップデートのたびにここだけ変更する
-const APP_VERSION = '3.128.0';
+const APP_VERSION = '3.134.3';
 // 本人認証を必須にするか。false の間は従来どおり名前を選ぶだけで入れる（移行期間）。
 //   false … 全員が今までどおり使える。端末の登録（＋スタッフを追加）は先にできる。
 //   true  … その端末で本人確認を済ませた人しかログイン画面に出ない。
@@ -486,6 +486,48 @@ const CLOSED_TAG_FG = '#ffffff';
 //   ・保存先は {店}-training（`{"YYYY-M-D":[氏名]}`＝dayoff とまったく同じ形）
 //   ・入れ方は 休日設定（StaffCalendarModal）の 種類 の3つ目「🎓 研修」
 //   ・色と文字はこの定数を通すこと（画面に直書きしない）。mobile.html にも同じものを置く
+const OFF1_ROW_MIN = 66;      // 🏖 休日・個人のカレンダー：週の行の最低の高さ（これより低くはしない）
+// ── 🏖 休日・個人のカレンダーの枠（v3.134.0・2026-11-25 ユーザー決定・モック mock_off1_frame.html の「B・イ・線2」）──
+//   ユーザーの言葉：「実際は上部にタブとかいろいろあって、もう少し画面が横長になるので、左右をもう少し縮めて、
+//   枠を横長にならないように」「カレンダーと集計の部分を、きっちり枠を分けて」「カレンダーの枠の線ももう少し濃く」
+//   →「（集計を右に置いた）3番目の画像が一番、横幅を利用できていい。黒が入ると重たいので、休みなのでグリーン系に」
+//   ★横幅は【窓の高さ】から決める（マスの 横÷縦 が OFF1_RATIO になる幅）。余った左右は空ける。
+//     幅を決め打ちにしないこと（窓が低いほどマスが横長になる、が元の困りごと）。
+//   ★色・線はこの定数だけを通す。画面に直書きしない。
+const OFF1_RATIO  = 1.25;      // マスの 横÷縦（少しだけ横長）
+const OFF1_MIN_W  = 720;       // カレンダーはこれより狭くしない（マスの字が入らなくなる）
+const OFF1_DOW_H  = 40;        // 曜日の見出しの高さ（横幅の計算に使うので決めてある）
+const OFF1_SUM_W  = 236;       // 右の集計の枠の幅
+const OFF1_GAP    = 12;        // カレンダーと集計の間
+const OFF1_LINE   = '#94a3b8'; // マスの線（以前は #e5e7eb で薄かった）
+const OFF1_FRAME  = '#64748b'; // カレンダーの外枠・曜日の見出しの下の線
+const OFF1_SUM_FRAME   = '#22c55e'; // 集計の枠（緑。黒・濃い灰色は使わない＝重たく見えるため）
+const OFF1_SUM_HEAD_BG = '#bbf7d0'; // 集計の見出しの地
+const OFF1_SUM_HEAD_FG = '#14532d'; // 集計の見出しの字
+const OFF1_SUM_BG      = '#f0fdf4'; // 集計の中の地
+//   窓の高さから幅を出すのに CSS のコンテナ単位（cqw / cqh）を使う。使えないブラウザでは幅いっぱいのまま（今までどおり）。
+const OFF1_CQ = typeof CSS!=='undefined' && !!CSS.supports && CSS.supports('width','1cqh');
+const off1CalW = rows => 'min(calc(100cqw - '+(OFF1_SUM_W+OFF1_GAP)+'px), max('+OFF1_MIN_W+'px, calc(max('+OFF1_ROW_MIN+'px, (100cqh - '+(OFF1_DOW_H+4)+'px) / '+rows+') * '+(7*OFF1_RATIO)+')))';
+const OFF1_TILE = {borderRadius:10,padding:'7px 11px',fontSize:13,fontWeight:800,background:'white'};
+const OFF1_TILE_ROW = {display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:8};
+// ★🏖 休日・全員の表：会社の休日数の札（v3.134.1・2026-11-26 ユーザー決定・モック mock_off_all_mh.html の「B・言葉2・緑」）
+//   ユーザーの言葉：「会社の設定された休日が今左上にあるので、表を少し下にずらして、印刷・車検・休日のボタンの
+//   下の行の右端に。休日・有給・計と書いてあるあたりの上に入れたら、真上にあるので見やすい」。
+//   ★札の幅は、表の「休日〜繰り越し」の列の幅にそろえる（StaffOffTable の topRight）。色は緑（集計の枠と同じ系統）。
+const OFFMH_BD  = OFF1_SUM_FRAME;    // 札の枠
+const OFFMH_BG  = OFF1_SUM_BG;       // 札の地
+const OFFMH_FG  = OFF1_SUM_HEAD_FG;  // 札の字
+const OFFMH_BTN = '#15803d';         // 「変更」「保存」の色
+const OFFMH_H   = 42;                // 札の高さ（「変更」を押して入力欄に変わっても、表が上下に動かないように決めてある）
+const OFFMH_GAP = 6;                 // 札と表のあいだ
+const OFFMH_H_STACK = 68;            // 個人のカレンダーの右に置く2段組みの札の高さ（入力欄に変わっても下の集計が動かないように）
+// ★🏖 休日・個人のカレンダー：休日（オレンジ）と有給（緑）の色（v3.134.2・2026-11-26 ユーザー指示）
+//   ユーザーの言葉：「休日のオレンジと有給の緑がちょっとわかりにくいので、もう少し色の差がわかるように。もう少し濃い色に」。
+//   以前はマスの地が #fff7ed／#f0fdf4 で、どちらもほぼ白だった。マスの地・マスの枠・右の集計のタイルはこの6つを通すこと。
+//   ★休業日の赤（CLOSED_BG=#fecaca）と見分けが付く色にしてある（オレンジを赤に寄せないこと）。
+const OFF1_OFF_BG = '#fdba74', OFF1_OFF_BD = '#ea580c', OFF1_OFF_FG = '#7c2d12';   // 休日
+const OFF1_LV_BG  = '#86efac', OFF1_LV_BD  = '#15803d', OFF1_LV_FG  = '#14532d';   // 有給
+const OFF1_SIDE_GAP = 8;             // 🏖 休日・個人：右の列の「会社の休日数」と「集計」のあいだ（枠は分ける）
 const TRN_COL = '#7e22ce';   // 研修の紫
 const TRN_CH  = '研';        // バッジの1文字
 const TRN_EMO = '🎓';        // 休日設定・カレンダーで使う絵文字
@@ -875,7 +917,7 @@ const MySchedCalendar=({cy,cm,user,pub,priv,isClosedDay,onPickDay,storeLabelOf,m
 // ── 月間休日数バッジ（スタッフ休日カレンダーの上部）──
 //   会社が月ごとに決める休日数を出すだけの表示。スタッフが自分で数えなくて済むようにするもので、
 //   休業日データや集計には影響しない。鉛筆が出るのは編集権限のある4人だけ。
-const MonthlyHolidayBadge = ({y,m,value,canEdit,onSave})=>{
+const MonthlyHolidayBadge = ({y,m,value,canEdit,onSave,wide,stack})=>{
   const [editing,setEditing]=useState(false);
   const [val,setVal]=useState('');
   const [busy,setBusy]=useState(false);
@@ -888,37 +930,54 @@ const MonthlyHolidayBadge = ({y,m,value,canEdit,onSave})=>{
     await onSave(y,m,n);
     setBusy(false);setEditing(false);
   };
-  const box={display:'flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:7,
-    background:'#eef2ff',border:'2px solid #c7d2fe',fontSize:11,color:'#3730a3',whiteSpace:'nowrap'};
+  // ★wide＝🏖 休日 の画面に置く大きい緑の札（v3.134.1・2026-11-26 ユーザー決定・モックの「B・言葉2・緑」）。
+  //   全員の表＝表の「休日〜繰り越し」の列と同じ幅で1行。色は OFFMH_* を通すこと（直書きしない）。
+  // ★stack＝個人のカレンダーの右（集計の枠の上）に置く時の2段組み（v3.134.2）。幅が狭い（OFF1_SUM_W）ので、
+  //   1段目＝言葉／2段目＝日数と「変更」。入力欄に変わっても高さが変わらないよう OFFMH_H_STACK で決めてある。
+  //   wide でない時（設定の「スタッフ休日・有給カレンダー」）は今までどおりの小さい藤色の札。
+  const box=wide
+    ?{display:'flex',alignItems:'center',justifyContent:'center',gap:9,padding:'6px 10px',borderRadius:stack?9:7,boxSizing:'border-box',width:'100%',minHeight:OFFMH_H,
+      background:OFFMH_BG,border:'2px solid '+OFFMH_BD,fontSize:13,color:OFFMH_FG,whiteSpace:'nowrap',
+      ...(stack?{flexDirection:'column',gap:4,padding:'7px 8px',minHeight:OFFMH_H_STACK}:{})}
+    :{display:'flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:7,
+      background:'#eef2ff',border:'2px solid #c7d2fe',fontSize:11,color:'#3730a3',whiteSpace:'nowrap'};
+  const lab=wide?((m+1)+'月 会社の休日数'):((m+1)+'月の休日');
+  const bd=wide?OFFMH_BD:'#c7d2fe', btn=wide?OFFMH_BTN:'#4f46e5';
+  // 2段組みの時だけ、2段目をひとまとまりにする（そうでない時は display:contents＝今までの1行の並びのまま）
+  const rowS=g=>stack?{display:'flex',alignItems:'center',justifyContent:'center',gap:g}:{display:'contents'};
   if(editing){
     return (
-      <span style={{...box,background:'white',borderColor:'#6366f1'}}>
-        <span style={{fontWeight:700}}>{m+1}月の休日</span>
+      <span data-mhbadge={wide?'wide':'std'} data-mhedit="1" style={{...box,background:'white',borderColor:wide?OFFMH_BTN:'#6366f1',...(wide?{gap:4,fontSize:11.5,padding:stack?'7px 8px':'6px 6px'}:{})}}>
+        <span style={{fontWeight:700,...(stack?{fontSize:13}:{})}}>{lab}</span>
+        <span style={rowS(4)}>
         {/* ★type="number" を使わない（2026-10-15）。Windows の IME が英数のままになるため。全角で打っても半角にする。 */}
         <input autoFocus value={val} disabled={busy}
           {...numFieldProps(v=>setVal(v),2)}
           onKeyDown={e=>{if(e.key==='Enter')commit();if(e.key==='Escape')setEditing(false);}}
-          style={{width:52,padding:'2px 6px',border:'2px solid #c7d2fe',borderRadius:5,fontSize:12,fontWeight:800,textAlign:'center'}}/>
+          style={{width:wide?46:52,padding:'2px 6px',border:'2px solid '+bd,borderRadius:5,fontSize:12,fontWeight:800,textAlign:'center'}}/>
         <span style={{fontWeight:700}}>日</span>
-        <button onClick={commit} disabled={busy}
-          style={{padding:'2px 9px',borderRadius:5,border:'none',background:'#4f46e5',color:'white',fontWeight:800,fontSize:11,cursor:busy?'wait':'pointer'}}>
+        <button data-mhsave="1" onClick={commit} disabled={busy}
+          style={{padding:'2px 9px',borderRadius:5,border:'none',background:btn,color:'white',fontWeight:800,fontSize:11,cursor:busy?'wait':'pointer'}}>
           {busy?'保存中…':'保存'}
         </button>
         <button onClick={()=>setEditing(false)} disabled={busy}
-          style={{padding:'2px 7px',borderRadius:5,border:'1px solid #d1d5db',background:'white',color:'#6b7280',fontSize:11,cursor:'pointer'}}>やめる</button>
+          style={{padding:wide?'2px 5px':'2px 7px',borderRadius:5,border:'1px solid #d1d5db',background:'white',color:'#6b7280',fontSize:11,cursor:'pointer'}}>やめる</button>
+        </span>
       </span>
     );
   }
   return (
-    <span style={box} title={canEdit?'クリックで今月の休日数を入力（管理者のみ）':'会社が決めた今月の休日数'}>
-      <span style={{fontWeight:700}}>{m+1}月の休日</span>
-      <span style={{fontWeight:900,fontSize:14}}>{value!=null?`${value}日`:'未設定'}</span>
+    <span data-mhbadge={wide?'wide':'std'} style={box} title={canEdit?'クリックで今月の休日数を入力（管理者のみ）':'会社が決めた今月の休日数'}>
+      <span style={{fontWeight:700}}>{lab}</span>
+      <span style={rowS(9)}>
+      <span data-mhval="1" style={{fontWeight:900,fontSize:wide?19:14}}>{value!=null?`${value}日`:'未設定'}</span>
       {canEdit&&(
-        <button onClick={()=>{setVal(value!=null?String(value):'');setEditing(true);}}
-          style={{padding:'1px 7px',borderRadius:5,border:'1px solid #c7d2fe',background:'white',color:'#4f46e5',fontSize:10,fontWeight:800,cursor:'pointer'}}>
+        <button data-mhbtn="1" onClick={()=>{setVal(value!=null?String(value):'');setEditing(true);}}
+          style={{padding:wide?'3px 11px':'1px 7px',borderRadius:5,border:'1px solid '+bd,background:'white',color:btn,fontSize:wide?11.5:10,fontWeight:800,cursor:'pointer'}}>
           {value!=null?'変更':'入力'}
         </button>
       )}
+      </span>
     </span>
   );
 };
@@ -3306,6 +3365,93 @@ const retagResBk=(base,oldBk,newBk)=>{
 // 着地確認用
 const resHasBk =(base,bk)=>Object.values(_resObj(base)).some(days=>Object.values(days||{}).some(r=>r&&r.bookingKey===bk));
 const resHasRec=(base,carId,resId)=>Object.values(_resObj(base)[carId]||{}).some(r=>r&&r.id===resId);
+// ╔══ 代車管理とスケジュールを【ズレさせない】ための道具（v3.130.0・2026-11-25 ユーザー決定）══╗
+//   決まり：「代車を選んでいるなら、日にちを変えてもズレは0件」「ズレた時は予定表が正」。
+//   調べて分かった出どころ（本番の実データ＋再現）：
+//     ① 整備の日にち変更＋代車の選び直しで、古い帯が元の日に残る（書き込みが2本に分かれていて順番が入れ替わる）
+//     ② 帯を外す時に bookingKey だけで見ていた。整備の bookingKey は【店ごとに別の表】なので、
+//        本店と三田店で同じ鍵（sched-日付-枠）になり得る＝他店のお客様の帯まで外しかねない
+//     ③ 「↶ 戻す」が、前に覚えた代車表を丸ごと書き戻していた（その間に他の端末が足した貸出が消える）
+//   ★ここから下の道具は、どれも【サーバーの最新の表に、変えた所だけを当てる】ためのもの。
+//     代車表を丸ごと書き戻す書き方（persistLres(()=>snap,…)）を新しく足さないこと。
+const _resNm=s=>String(s==null?'':s).replace(/[\s　]/g,'');
+// 指定 bookingKey の帯を外す。★氏名も合う帯だけ（names のどれか。帯に氏名が無ければ外す）。
+//   names が空の時は removeResByBk と同じ（氏名を見ない）。keepId は外さない帯の id。
+const removeResByBkUser=(base,bks,names,keepId)=>{
+  const want=(Array.isArray(bks)?bks:[bks]).filter(Boolean);
+  const nms=(Array.isArray(names)?names:[names]).map(_resNm).filter(Boolean);
+  const src=_resObj(base);
+  if(!want.length)return src;
+  const out={};
+  for(const cid of Object.keys(src)){
+    const days={...(src[cid]||{})};
+    Object.keys(days).forEach(k=>{
+      const r=days[k];
+      if(!r||!want.includes(r.bookingKey))return;
+      if(keepId!=null&&r.id===keepId)return;
+      if(nms.length&&_resNm(r.user)&&!nms.includes(_resNm(r.user)))return;   // 別のお客様の帯＝触らない
+      delete days[k];
+    });
+    out[cid]=days;
+  }
+  return out;
+};
+const resHasBkUser=(base,bks,names,keepId)=>{
+  const want=(Array.isArray(bks)?bks:[bks]).filter(Boolean);
+  const nms=(Array.isArray(names)?names:[names]).map(_resNm).filter(Boolean);
+  return Object.values(_resObj(base)).some(days=>Object.values(days||{}).some(r=>r&&want.includes(r.bookingKey)
+    &&!(keepId!=null&&r.id===keepId)&&!(nms.length&&_resNm(r.user)&&!nms.includes(_resNm(r.user)))));
+};
+// 帯の【変えた所だけ】を取り出す／当て直す。帯は id で見分ける（id の無い古い帯は 車/キー）。
+const resIdOf=(cid,k,r)=>(r&&r.id!=null)?('i'+r.id):('k'+cid+'/'+k);
+const resIndex=(obj)=>{
+  const m={},s=_resObj(obj);
+  Object.keys(s).forEach(cid=>Object.keys(s[cid]||{}).forEach(k=>{const r=s[cid][k];if(r)m[resIdOf(cid,k,r)]={cid,k,rec:r};}));
+  return m;
+};
+const resDiff=(prev,next)=>{
+  const a=resIndex(prev),b=resIndex(next),out=[];
+  new Set([...Object.keys(a),...Object.keys(b)]).forEach(id=>{
+    const x=a[id]||null,y=b[id]||null;
+    if(x&&y&&String(x.cid)===String(y.cid)&&JSON.stringify(x.rec)===JSON.stringify(y.rec))return;
+    out.push({id,before:x,after:y});
+  });
+  return out;
+};
+//   dir='after' … その変更を当てる ／ dir='before' … その変更を打ち消す（元に戻す）
+const resApplyDiff=(base,diff,dir)=>{
+  let out=_resObj(base);
+  const idx=resIndex(out);
+  (diff||[]).forEach(d=>{
+    const cur=idx[d.id], tgt=d[dir];
+    if(cur){const days={...(out[cur.cid]||{})};delete days[cur.k];out={...out,[cur.cid]:days};}
+    if(tgt)out=putResRec(out,tgt.cid,tgt.k,tgt.rec);
+  });
+  return out;
+};
+const resDiffLanded=(back,diff,dir)=>{
+  const idx=resIndex(back);
+  return (diff||[]).every(d=>{
+    const cur=idx[d.id], tgt=d[dir];
+    if(!tgt)return !cur;
+    return !!cur&&String(cur.cid)===String(tgt.cid)&&JSON.stringify(cur.rec)===JSON.stringify(tgt.rec);
+  });
+};
+// その帯を戻す先に、別の帯が重なっていないか（「↶ 戻す」で二重貸しを作らないため）
+const resDiffClash=(cur,diff,dir)=>{
+  const s=_resObj(cur), hits=[];
+  (diff||[]).forEach(d=>{
+    const tgt=d[dir]; if(!tgt)return;
+    const f=resFromDays(tgt.rec), t=resToDays(tgt.rec); if(f==null||t==null)return;
+    Object.keys(s[tgt.cid]||{}).forEach(k=>{
+      const r=s[tgt.cid][k];
+      if(!r||resIdOf(tgt.cid,k,r)===d.id)return;
+      if(resFromDays(r)!=null&&f<=resToDays(r)&&t>=resFromDays(r))hits.push(r);
+    });
+  });
+  return hits;
+};
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
 // ★予約カードの「削除」は【予約確定を押すまでサーバーに書かない】（2026-11-12 ユーザー指示）。
 //   確定していないのに消えるのは「確定したのと同じ意味」になってしまうため。
 //   印（pendLoanerDrop / pendRentalDrop）を立てて、画面の上だけ消して見せる道具がこれ。
@@ -8568,6 +8714,297 @@ const RestrictionModal=memo(({isOpen,onClose,dateLabel,dk,restriction,autoRanges
   );
 });
 
+// ── スタッフ休日表の印刷（v3.129.0・2026-11-23 ユーザー要望）─────────────────
+//   「スタッフ休日・有給カレンダー」から、店舗全体／スタッフ個別 を A4 横 1枚で刷る。
+//   ★店舗全体は【表型（スタッフ×日）】＝2026-11-23 ユーザー決定・B案。カレンダー型（その日に休む人の名前を並べる）は不採用。
+//   ★純関数。画面が持っている値（その月の日ごとの休日・有給・研修／月の集計）を受け取って HTML の文字を返すだけ。
+//   ★外から何も読み込まない（CDN・画像・フォントなし）。script も入れない（印刷は開いた側から w.print()）。
+//   ★「1か月が1枚に収まる」ことを最優先。表の高さを決め打ちにして、行を等分する。
+//   ★色が出ない紙でも読めるよう、休＝「休」／有給＝「有」／研修＝「研」の字を必ず添える（色だけで区別しない）。
+//   d = {mode:'table'（店舗全体＝スタッフ×日の表）|'one'（スタッフ個別）, storeName, y, m(0始まり), who, quota, stamp,
+//        staff:[氏名], days:[{d,dow,closed,hol,off:[],leave:[],trn:[],notes:{氏名:メモ}}],
+//        summary:[{name,offs,leaves,trn,carry}], carried:[日]（個別のみ）}
+//        ★「（うち店休日○＋繰り越し休日○）」の内訳は用紙にも出さない（v3.134.3・2026-11-26 ユーザー指示）。
+//          「休日」の数は今までどおり店休日を含む。内訳を足し直さないこと。
+const staffCalPrintHtml=(d)=>{
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const DOW=['日','月','火','水','木','金','土'];
+  const dcls=x=>(x.hol||x.dow===0)?'sun':(x.dow===6?'sat':'');
+  const title=`スタッフ休日表　${d.y}年${d.m+1}月　${esc(d.storeName)}${d.mode==='one'?'　'+esc(d.who)+' さん':'（全体）'}`;
+  const sumOf=n=>(d.summary||[]).find(s=>s.name===n)||{name:n,offs:0,leaves:0,trn:0};
+  // 週に割る（日曜はじまり・画面のカレンダーと同じ）
+  const weeks=[];let wk=Array(7).fill(null);
+  d.days.forEach(x=>{wk[x.dow]=x;if(x.dow===6){weeks.push(wk);wk=Array(7).fill(null);}});
+  if(wk.some(Boolean))weeks.push(wk);
+  const css=`
+@page{size:A4 landscape;margin:8mm}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:"Yu Gothic","Meiryo","Hiragino Kaku Gothic ProN",sans-serif;color:#111;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sheet{width:281mm;height:193mm;display:flex;flex-direction:column;overflow:hidden}
+.hd{display:flex;align-items:baseline;gap:12px;border-bottom:2.5px solid #111;padding-bottom:3px;flex-shrink:0}
+.hd h1{font-size:19px;margin:0;font-weight:900;letter-spacing:.5px}
+.hd .r{margin-left:auto;font-size:10px;color:#444;white-space:nowrap}
+.lg{display:flex;gap:14px;align-items:center;font-size:10.5px;margin:4px 0 5px;flex-shrink:0;color:#222}
+.k{display:inline-block;min-width:15px;text-align:center;font-weight:900;font-size:10px;border-radius:3px;padding:0 2px;margin-right:3px;line-height:1.45}
+.k.off{background:#fff;color:#c2410c;border:1.4px solid #c2410c}
+.k.lv{background:#047857;color:#fff;border:1.4px solid #047857}
+.k.tr{background:#fff;color:#7e22ce;border:1.4px dashed #7e22ce}
+.cbox{display:inline-block;width:13px;height:13px;background:#fecaca;border:1px solid #b91c1c;vertical-align:-2px;margin-right:3px}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+.grid{flex:1;min-height:0}
+.grid table{height:100%}
+.grid th{font-size:12px;padding:2px 0;border:1.2px solid #111;background:#e5e7eb;height:6mm}
+.grid td{border:1.2px solid #111;vertical-align:top;padding:2px 4px;overflow:hidden}
+.sun{color:#dc2626}.sat{color:#1d4ed8}
+td.none{background:#f3f4f6}
+td.closed{background:#fecaca}
+.dn{font-size:15px;font-weight:900;line-height:1.15;display:flex;align-items:baseline;gap:4px}
+.dn small{font-size:9px;font-weight:700;color:#dc2626}
+.cl{font-size:13px;font-weight:900;color:#991b1b;letter-spacing:3px;text-align:center;margin-top:5mm}
+.sm{flex-shrink:0;margin-top:5px;border:1.2px solid #111;padding:3px 7px;font-size:10.5px;display:flex;flex-wrap:wrap;gap:2px 16px}
+.sm b{font-weight:900}
+.sm .t{font-weight:900;margin-right:4px}
+/* 表型 */
+.tb th,.tb td{border:1px solid #111;text-align:center;vertical-align:middle;font-size:11px;padding:0;overflow:hidden}
+.tb th{background:#e5e7eb;font-size:10.5px;height:5.5mm}
+.tb th.name,.tb td.name{width:25mm;text-align:left;padding-left:5px;font-weight:800;font-size:12px;white-space:nowrap}
+.tb th.tot,.tb td.tot{width:10.5mm;font-weight:800;background:#f8fafc}
+.tb td.cy{width:21mm;font-size:9px;font-weight:700;background:#f8fafc;white-space:nowrap}
+.tb th.cy{width:21mm}
+.tb td.closed{background:#fecaca;color:#991b1b;font-size:9px}
+.tb td .k{margin:0;font-size:11px;min-width:16px}
+.tb tr.cnt td{font-size:10px;font-weight:800;background:#f8fafc;height:6mm}
+/* 個別 */
+.one .dn{font-size:17px}
+.mk{text-align:center;font-weight:900;margin-top:2mm;font-size:21px;letter-spacing:2px}
+.mk.off{color:#c2410c}.mk.lv{color:#047857}.mk.tr{color:#7e22ce;font-size:17px}
+.mk small{display:block;font-size:9.5px;font-weight:700;letter-spacing:0;color:#1d4ed8;margin-top:1px}
+.memo{font-size:10px;color:#92400e;text-align:center;margin-top:2px;white-space:nowrap;overflow:hidden}
+.one td.is-off{background:#fff7ed}.one td.is-lv{background:#ecfdf5}.one td.is-tr{background:#faf5ff}
+.big{flex-shrink:0;margin-top:5px;border:1.5px solid #111;padding:5px 10px;font-size:13px;display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.big b{font-size:17px;font-weight:900}
+.big .sub{font-size:10.5px;color:#444}
+`;
+  const head=`<div class="hd"><h1>🏖 ${title}</h1><div class="r">${d.quota!=null?'会社の休日数 '+esc(d.quota)+'日　／　':''}作成 ${esc(d.stamp)}</div></div>`
+    +`<div class="lg"><span><span class="k off">休</span>休日</span><span><span class="k lv">有</span>有給</span><span><span class="k tr">研</span>研修（出勤・不在）</span><span><span class="cbox"></span>休業日</span></div>`;
+  const thDow='<tr>'+DOW.map((w,i)=>`<th class="${i===0?'sun':i===6?'sat':''}">${w}</th>`).join('')+'</tr>';
+  const dn=x=>`<div class="dn ${dcls(x)}">${x.d}${x.hol&&!x.closed?'<small>祝</small>':''}</div>`;
+  let body='';
+  if(d.mode==='table'){
+    // ── 店舗全体・表型：スタッフ×日
+    const cnt=x=>x.closed?'':(x.off.length+x.leave.length)||'';
+    body=`<div class="grid"><table class="tb"><tr><th class="name" rowspan="2">氏名</th>`+d.days.map(x=>`<th class="${dcls(x)}">${x.d}</th>`).join('')+`<th class="tot" rowspan="2">休日</th><th class="tot" rowspan="2">有給</th><th class="tot" rowspan="2">計</th><th class="tot" rowspan="2">研修</th><th class="cy" rowspan="2">繰り越し</th></tr>`
+      +'<tr>'+d.days.map(x=>`<th class="${dcls(x)}">${DOW[x.dow]}</th>`).join('')+'</tr>'
+      +d.staff.map(n=>{const s=sumOf(n);return `<tr><td class="name">${esc(n)}</td>`+d.days.map(x=>{
+          if(x.closed)return '<td class="closed">店休</td>';
+          if(x.off.includes(n))return '<td><span class="k off">休</span></td>';
+          if(x.leave.includes(n))return '<td><span class="k lv">有</span></td>';
+          if(x.trn.includes(n))return '<td><span class="k tr">研</span></td>';
+          return '<td></td>';
+        }).join('')+`<td class="tot">${s.offs||0}</td><td class="tot">${s.leaves||0}</td><td class="tot">${(s.offs||0)+(s.leaves||0)}</td><td class="tot">${s.trn||''}</td><td class="cy">${esc(s.carry||'')}</td></tr>`;}).join('')
+      +`<tr class="cnt"><td class="name" style="font-size:10px">休みの人数</td>`+d.days.map(x=>`<td${x.closed?' class="closed"':''}>${cnt(x)}</td>`).join('')+'<td colspan="5"></td></tr></table></div>';
+    body+=`<div class="sm"><span class="t">見かた</span><span>「休日」には店の休業日も入っています（画面の集計と同じ数え方）。「休みの人数」は 休日＋有給 の人数です。</span></div>`;
+  }else{
+    // ── スタッフ個別
+    const n=d.who,s=sumOf(n);
+    body=`<div class="grid one"><table>${thDow}`+weeks.map(w=>'<tr style="height:'+(100/weeks.length).toFixed(2)+'%">'+w.map(x=>{
+      if(!x)return '<td class="none"></td>';
+      if(x.closed)return `<td class="closed">${dn(x)}<div class="cl">休業日</div></td>`;
+      const memo=x.notes&&x.notes[n]?`<div class="memo">📝 ${esc(x.notes[n])}</div>`:'';
+      if(x.off.includes(n))return `<td class="is-off">${dn(x)}<div class="mk off">休日${(d.carried||[]).includes(x.d)?'<small>↩ 繰り越し分</small>':''}</div>${memo}</td>`;
+      if(x.leave.includes(n))return `<td class="is-lv">${dn(x)}<div class="mk lv">有給</div>${memo}</td>`;
+      if(x.trn.includes(n))return `<td class="is-tr">${dn(x)}<div class="mk tr">研修</div></td>`;
+      return `<td>${dn(x)}</td>`;
+    }).join('')+'</tr>').join('')+'</table></div>';
+    body+=`<div class="big"><span>休日 <b>${s.offs||0}</b> 日</span><span>有給 <b>${s.leaves||0}</b> 日</span><span>計 <b>${(s.offs||0)+(s.leaves||0)}</b> 日</span>${s.trn?`<span>研修 <b>${s.trn}</b> 日<span class="sub">（休みには数えません）</span></span>`:''}${s.carry?`<span class="sub" style="font-size:12px;font-weight:800;color:#111">${esc(s.carry)}</span>`:''}</div>`;
+  }
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${title}</title><style>${css}</style></head><body><div class="sheet" data-printmode="${d.mode}">${head}${body}</div></body></html>`;
+};
+
+// ╔══ スタッフ休日：数え方・1か月の中身・表・印刷（v3.132.0・2026-11-25）══╗
+//   カレンダー画面の「🏖 休日」（見るだけ）と、設定の「スタッフ休日・有給カレンダー」（入れる所）の
+//   【両方が同じものを使う】。数え方をもう1つ書かないこと（画面どうし・画面と用紙で数字が食い違う）。
+//   c = { y, m, dayOff, pleave, trn, isClosed(y,m,d), mh（会社の月間休日数） }
+const _offArr=v=>Array.isArray(v)?v:[];
+// 1人ぶんの集計（店の休業日は休日に数える／枠を超えた休日は有給に数える／研修は休みに入れない）
+const staffOffSum=(name,c)=>{
+  let offs=0,leaves=0,closedN=0,trn=0;
+  const dim=new Date(c.y,c.m+1,0).getDate();
+  for(let d=1;d<=dim;d++){
+    const dkk=c.y+'-'+(c.m+1)+'-'+d;
+    if(c.isClosed(c.y,c.m,d)){offs++;closedN++;continue;}
+    if(_offArr((c.dayOff||{})[dkk]).includes(name))offs++;
+    if(_offArr((c.pleave||{})[dkk]).includes(name))leaves++;
+    if(_offArr((c.trn||{})[dkk]).includes(name))trn++;
+  }
+  const carry=calcHolidayCarry(name,c.y,c.m,c.dayOff||{},c.isClosed,c.mh);
+  if(carry&&carry.over>0){offs-=carry.over;leaves+=carry.over;}
+  return{name,offs,leaves,trn,closedN,carry};
+};
+// その月の1日ごとの中身と、表に出す人（名簿＋名簿に無い名前）。
+//   ★名簿に無い名前も、その月に休みが入っていれば必ず出す（名簿で絞って黙って消さない）。
+const staffOffMonth=(c,rosterNames)=>{
+  const days=[], dim=new Date(c.y,c.m+1,0).getDate();
+  for(let d=1;d<=dim;d++){
+    const dkk=c.y+'-'+(c.m+1)+'-'+d, closed=!!c.isClosed(c.y,c.m,d);
+    days.push({d,dkk,dow:new Date(c.y,c.m,d).getDay(),closed,hol:HOLIDAYS.has(dkk),
+      off:closed?[]:_offArr((c.dayOff||{})[dkk]), leave:closed?[]:_offArr((c.pleave||{})[dkk]), trn:closed?[]:_offArr((c.trn||{})[dkk])});
+  }
+  const roster=(rosterNames||[]).slice(), extra=[];
+  days.forEach(x=>[...x.off,...x.leave,...x.trn].forEach(n=>{if(!roster.includes(n)&&!extra.includes(n))extra.push(n);}));
+  return {days,roster,extra,names:[...roster,...extra]};
+};
+// 印刷の画面を開く。mode='table'（全員・表）／'one'（who さんの1か月）。用紙は staffCalPrintHtml が作る。
+const staffOffPrintOpen=({mode,who,storeName,c,rosterNames,noteOf})=>{
+  const mo=staffOffMonth(c,rosterNames);
+  const days=mo.days.map(x=>{const notes={};[...x.off,...x.leave].forEach(n=>{const t=noteOf?noteOf(x.dkk,n):'';if(t)notes[n]=t;});return {...x,notes};});
+  const names=mode==='one'?[who]:mo.names;
+  const summary=names.map(n=>{const x=staffOffSum(n,c);return{name:n,offs:x.offs,leaves:x.leaves,trn:x.trn,carry:carryLabel(x.carry)};});
+  const c1=mode==='one'?calcHolidayCarry(who,c.y,c.m,c.dayOff||{},c.isClosed,c.mh):null;
+  const nw=new Date(), p2=v=>String(v).padStart(2,'0');
+  const html=staffCalPrintHtml({mode,storeName,y:c.y,m:c.m,who,quota:(c.mh||{})[c.y+'-'+(c.m+1)],
+    stamp:nw.getFullYear()+'/'+(nw.getMonth()+1)+'/'+nw.getDate()+' '+p2(nw.getHours())+':'+p2(nw.getMinutes()),
+    staff:names,days,summary,carried:(c1&&c1.carried)||[]});
+  const w=window.open('','_blank','width=1200,height=800');
+  if(!w){alert('印刷の画面を開けませんでした。ブラウザのポップアップを許可してから、もう一度お試しください。');return false;}
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>{try{w.print();}catch(e){}},600);
+  return true;
+};
+// 全員の表（スタッフ×日）。印刷の表型（staffCalPrintHtml の mode:'table'）と同じ並び・同じ印。
+//   ★見るだけ。マスを押しても何も変わらない。氏名は canPick(name) が true の人だけ押せる（onPick）。
+const StaffOffTable=({c,rosterNames,noteOf,storeObj,meName,canPick,onPick,hint,topRight})=>{
+  const OT_NAME=118, OT_DAY=30, OT_TOT=40, OT_CY=104;
+  const OT_LINE='1px solid #334155';
+  const OT_TH={border:OT_LINE,background:'#e5e7eb',padding:'3px 0',textAlign:'center',fontWeight:800,fontSize:11,lineHeight:1.2};
+  const OT_TD={border:OT_LINE,textAlign:'center',verticalAlign:'middle',padding:0,height:30,position:'relative',overflow:'hidden',background:'white'};
+  const OT_TOTD={...OT_TD,background:'#f8fafc',fontWeight:800,fontSize:12.5};
+  const OT_K={display:'inline-block',minWidth:20,textAlign:'center',fontWeight:900,fontSize:12,borderRadius:4,lineHeight:'19px',padding:'0 2px'};
+  const OT_K_OFF={...OT_K,background:'#fff',color:'#c2410c',border:'1.6px solid #c2410c'};
+  const OT_K_LV ={...OT_K,background:'#047857',color:'#fff',border:'1.6px solid #047857'};
+  const OT_K_TR ={...OT_K,background:'#fff',color:TRN_COL,border:'1.6px dashed '+TRN_COL};
+  const OT_TODAY_H={background:'#ffedd5',boxShadow:'inset 2px 0 0 #fb923c, inset -2px 0 0 #fb923c, inset 0 2px 0 #fb923c'};
+  const OT_TODAY_C={boxShadow:'inset 2px 0 0 #fb923c, inset -2px 0 0 #fb923c'};
+  // ★スタッフの行を【1つ飛びで薄い網掛け】＝横のライン（v3.132.2・2026-11-25 ユーザー指示）。
+  //   ユーザーの言葉：「薄い灰色の網掛けは横ラインでお願いします。縦じゃありません」。
+  //   v3.132.1 で日の列（縦）に掛けたのは取り違え。★縦に戻さないこと。
+  //   2行目・4行目…のスタッフの行だけ薄い灰色。休業日の赤・本日のオレンジの枠はそのまま優先する。
+  //   見出しと「休みの人数」の行には掛けない。色はこの2つだけを通すこと。
+  const OT_ZB='#eaeff5', OT_ZB_T='#e3e9f0';
+  const DOWJ=['日','月','火','水','木','金','土'];
+  const today=new Date();
+  const numCol=x=>(x.hol||x.dow===0)?'#dc2626':x.dow===6?'#1d4ed8':'#111';
+  const isToday=x=>x.d===today.getDate()&&c.m===today.getMonth()&&c.y===today.getFullYear();
+  const mo=staffOffMonth(c,rosterNames);
+  const note=(dkk,n)=>noteOf?noteOf(dkk,n):'';
+  // ★topRight＝表の上の行の右端に置くもの（会社の休日数の札・v3.134.1）。
+  //   幅は「休日〜繰り越し」の5列ぶん＝その真上にぴったり乗る。表は width:100% で列が同じ割合で広がるので、
+  //   枠の内側の幅（100% − 枠線4px）に 5列ぶん÷全列ぶん を掛け、右の枠線2pxを足す。
+  //   窓が狭くて表が横スクロールになる時は、5列ぶんの最低の幅で右端に置く。
+  const OT_TAIL=4*OT_TOT+OT_CY, OT_MINW=OT_NAME+mo.days.length*OT_DAY+OT_TAIL;
+  return(
+    <>
+    {topRight&&(
+      <div data-offtop="1" style={{display:'flex',justifyContent:'flex-end',marginBottom:OFFMH_GAP}}>
+        <div data-offtopbox="1" style={{flex:'0 0 auto',boxSizing:'border-box',width:'calc((100% - 4px) * '+OT_TAIL+' / '+OT_MINW+' + 2px)',minWidth:OT_TAIL}}>{topRight}</div>
+      </div>
+    )}
+    <div data-offtablewrap="1" style={{border:'2px solid #334155',borderRadius:9,overflowX:'auto',overflowY:'hidden',background:'white'}}>
+      <table data-offtable="1" style={{borderCollapse:'collapse',width:'100%',tableLayout:'fixed',
+        minWidth:OT_MINW,fontSize:12}}>
+        <colgroup>
+          <col style={{width:OT_NAME}}/>
+          {mo.days.map(x=><col key={x.d} style={{width:OT_DAY}}/>)}
+          <col style={{width:OT_TOT}}/><col style={{width:OT_TOT}}/><col style={{width:OT_TOT}}/><col style={{width:OT_TOT}}/>
+          <col style={{width:OT_CY}}/>
+        </colgroup>
+        <thead>
+          <tr>
+            <th rowSpan={2} style={{...OT_TH,textAlign:'left',paddingLeft:8,position:'sticky',left:0,zIndex:2}}>氏名</th>
+            {mo.days.map(x=>(
+              <th key={x.d} data-offhead={x.d} title={x.hol?'祝日':undefined}
+                style={{...OT_TH,color:numCol(x),fontSize:12.5,...(isToday(x)?OT_TODAY_H:{})}}>{x.d}</th>
+            ))}
+            <th rowSpan={2} style={OT_TH}>休日</th>
+            <th rowSpan={2} style={OT_TH}>有給</th>
+            <th rowSpan={2} style={OT_TH}>計</th>
+            <th rowSpan={2} style={OT_TH}>{TRN_LABEL}</th>
+            <th rowSpan={2} style={OT_TH}>繰り越し</th>
+          </tr>
+          <tr>
+            {mo.days.map(x=>(
+              <th key={x.d} style={{...OT_TH,color:numCol(x),fontSize:10.5,...(isToday(x)?OT_TODAY_H:{})}}>{DOWJ[x.dow]}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {mo.names.map((n,ri)=>{
+            const s=staffOffSum(n,c);
+            const zb=ri%2===1;                       // 2行目・4行目…に薄い網掛け
+            const TOT=zb?{...OT_TOTD,background:OT_ZB_T}:OT_TOTD;
+            const mine=!!meName&&n===meName;
+            const outside=!mo.roster.includes(n);
+            const pick=!outside&&!!onPick&&(!canPick||canPick(n));
+            return(
+              <tr key={n} data-offrow={n} data-offzb={zb?'1':'0'}>
+                <td onClick={pick?()=>onPick(n):undefined}
+                  title={outside?'名簿に無い名前です（休みのデータに残っています）':pick?(n+' さんのカレンダーを開く'):undefined}
+                  style={{...OT_TD,textAlign:'left',paddingLeft:8,fontWeight:800,fontSize:12.5,whiteSpace:'nowrap',
+                    position:'sticky',left:0,zIndex:1,background:mine?storeObj.bg:(zb?OT_ZB:'white'),
+                    color:outside?'#b45309':pick?storeObj.color:'#111',cursor:pick?'pointer':'default'}}>
+                  {outside&&'⚠ '}{n}
+                </td>
+                {mo.days.map(x=>{
+                  const kind=x.closed?'closed':x.off.includes(n)?'off':x.leave.includes(n)?'leave':x.trn.includes(n)?'trn':'';
+                  const memo=(kind==='off'||kind==='leave')?note(x.dkk,n):'';
+                  const tip=kind==='closed'?'店休日':kind?((c.m+1)+'/'+x.d+' '+n+'：'+(kind==='off'?'休日':kind==='leave'?'有給':TRN_LABEL+'（出勤・不在）')+(memo?'　📝 '+memo:'')):undefined;
+                  return(
+                    <td key={x.d} data-offcell={n+'/'+x.d} data-offkind={kind} title={tip}
+                      style={{...OT_TD,...(x.closed?{background:CLOSED_BG,color:CLOSED_FG,fontSize:9.5,fontWeight:700}:(zb?{background:OT_ZB}:{})),...(isToday(x)?OT_TODAY_C:{})}}>
+                      {kind==='closed'?'店休':kind==='off'?<span style={OT_K_OFF}>休</span>
+                        :kind==='leave'?<span style={OT_K_LV}>有</span>
+                        :kind==='trn'?<span style={OT_K_TR}>研</span>:null}
+                      {memo&&<span style={{position:'absolute',top:1,right:1,width:0,height:0,borderTop:'6px solid #f59e0b',borderLeft:'6px solid transparent'}}/>}
+                    </td>
+                  );
+                })}
+                <td data-offtot="offs" title={offBreakdown(s.closedN,s.carry)||undefined} style={TOT}>{s.offs||0}</td>
+                <td data-offtot="leaves" style={TOT}>{s.leaves||0}</td>
+                <td data-offtot="sum" style={{...TOT,color:'#c2410c'}}>{(s.offs||0)+(s.leaves||0)}</td>
+                <td data-offtot="trn" data-sumtrn={s.trn>0?n:undefined} style={{...TOT,color:TRN_COL}}>{s.trn||''}</td>
+                <td data-offtot="carry" title={carryTitle(s.carry)||undefined}
+                  style={{...TOT,fontSize:10,fontWeight:700,whiteSpace:'nowrap',color:(s.carry&&s.carry.remain>0)?'#1d4ed8':'#dc2626'}}>{carryLabel(s.carry)||''}</td>
+              </tr>
+            );
+          })}
+          <tr data-offcntrow="1">
+            <td style={{...OT_TOTD,textAlign:'left',paddingLeft:8,fontSize:10.5,position:'sticky',left:0,zIndex:1}}>休みの人数</td>
+            {mo.days.map(x=>(
+              <td key={x.d} data-offcnt={x.d}
+                style={{...OT_TOTD,fontSize:11,...(x.closed?{background:CLOSED_BG}:{}),...(isToday(x)?OT_TODAY_C:{})}}>
+                {x.closed?'':((x.off.length+x.leave.length)||'')}
+              </td>
+            ))}
+            <td colSpan={5} style={OT_TOTD}/>
+          </tr>
+        </tbody>
+      </table>
+      <div style={{padding:'6px 10px',borderTop:'1px solid #cbd5e1',background:'#f8fafc',fontSize:10.5,color:'#475569',display:'flex',gap:14,flexWrap:'wrap',alignItems:'center'}}>
+        <span><span style={OT_K_OFF}>休</span> 休日</span>
+        <span><span style={OT_K_LV}>有</span> 有給</span>
+        <span><span style={OT_K_TR}>研</span> {TRN_LABEL}（出勤・不在）</span>
+        <span><span style={{display:'inline-block',width:13,height:13,background:CLOSED_BG,border:'1px solid #b91c1c',verticalAlign:-2,marginRight:3}}/>休業日</span>
+        <span>「休日」には店の休業日も入っています。「休みの人数」は 休日＋有給 の人数です。</span>
+        {onPick&&<span style={{color:storeObj.color,fontWeight:700}}>{hint||'色の付いた氏名を押すと、その人のカレンダーが開きます'}</span>}
+      </div>
+    </div>
+    </>
+  );
+};
+// ╚══════════════════════════════════════════════════════════════════╝
+
 // ============================================
 //  スタッフ休日・有給カレンダーモーダル
 // ============================================
@@ -8722,28 +9159,22 @@ const StaffCalendarModal=memo(({isOpen,onClose,initMonth,currentUser,adminMode,v
   const DOW2=['日','月','火','水','木','金','土'];
 
   // 月次集計（店舗休業日はスタッフ休日にカウント）
-  const monthlySummary=staffList.map(s=>{
-    let offs=0,leaves=0,closedN=0,trn=0;
-    for(let d=1;d<=daysInMonth;d++){
-      const dkk=`${cy}-${cm+1}-${d}`;
-      if(isStoreClosed(cy,cm,d)){offs++;closedN++;continue;} // 店休日はスタッフ休日としてカウント
-      if((dayOffData[dkk]||[]).includes(s.name))offs++;
-      if((pleaveData[dkk]||[]).includes(s.name))leaves++;
-      // ★研修は【休みでない】ので別に数える。offs・leaves・「計○日」には絶対に足さないこと（2026-11-04）
-      if((trnData[dkk]||[]).includes(s.name))trn++;
-    }
-    const carry=calcHolidayCarry(s.name,cy,cm,dayOffData,isStoreClosed,monthlyHolidays);
-    if(carry&&carry.over>0){offs-=carry.over;leaves+=carry.over;}   // 枠を超えた休日は有給に数える
-    return{name:s.name,offs,leaves,trn,closedN,carry};
-  }).filter(s=>s.offs>0||s.leaves>0||s.trn>0||(s.carry&&s.carry.quota!=null));
+  // ★1人ぶんの集計（2026-11-23：印刷でも【同じ数え方】を使うので関数に切り出した。中身は変えていない）
+  const offCtx={y:cy,m:cm,dayOff:dayOffData,pleave:pleaveData,trn:trnData,isClosed:isStoreClosed,mh:monthlyHolidays};
+  const sumOne=name=>staffOffSum(name,offCtx);
+  const monthlySummary=staffList.map(s=>sumOne(s.name)).filter(s=>s.offs>0||s.leaves>0||s.trn>0||(s.carry&&s.carry.quota!=null));
 
   const today=new Date();
   const selCarry=selStaff?calcHolidayCarry(selStaff,cy,cm,dayOffData,isStoreClosed,monthlyHolidays):null;   // 選んだ人の繰り越し（充てた日の表示用）
 
+  // ★🖨 印刷はここには置かない（v3.132.0・2026-11-25 ユーザー指示）。
+  //   印刷はカレンダー画面の「🏖 休日」で、全員か個人かを選んでから押す。ここは休みを【入れる所】。
+  const mRosterNames=staffList.map(s=>s.name);
+
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2500,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} className="modal-box"
-        style={{background:'white',borderRadius:16,width:'min(900px,97vw)',maxHeight:'94vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 24px 80px rgba(0,0,0,0.4)'}}>
+        style={{background:'white',borderRadius:16,width:selStaff?'min(900px,97vw)':'min(1360px,98vw)',maxHeight:'94vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 24px 80px rgba(0,0,0,0.4)'}}>
 
         {/* ヘッダー */}
         <div style={{padding:'14px 20px',background:`linear-gradient(135deg,${storeObj.color},${storeObj.accent})`,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
@@ -8853,6 +9284,18 @@ const StaffCalendarModal=memo(({isOpen,onClose,initMonth,currentUser,adminMode,v
             <button onClick={()=>setCalMonth(new Date(cy,cm+1,1))} style={NAV_S}><ChevronRight size={16}/></button>
           </div>
 
+          {/* ★★全員表示は【表（スタッフ×日）】（v3.131.0・2026-11-25 ユーザー決定）。
+              ユーザーの言葉：「印刷の全体表示が良かったので、ウェブで見る表示も全体表示は表に。
+              個人に切り替えた時は、カレンダーの中に休みを入れる今まで通りの方法で」。
+              ★見た目は印刷の表型（staffCalPrintHtml の mode:'table'）にそろえる。数字は画面と同じ sumOne。
+              ★ここは【見るだけ】。入れる・外すのは今までどおり、名前を選んでカレンダーで行う。
+                表の氏名を押すと、その人のカレンダーへ移る（選べる人は上の名前ボタンと同じ決まり）。
+              ★名簿に無い名前も、その月に休みが入っていれば必ず出す（部品 StaffOffTable がやる）。名簿で絞って黙って消さないこと。 */}
+          {!selStaff?(
+          <StaffOffTable c={offCtx} rosterNames={mRosterNames} noteOf={noteOf} storeObj={storeObj}
+            meName={currentUser&&currentUser.name}
+            canPick={n=>adminMode||n===(currentUser&&currentUser.name)} onPick={n=>setSelStaff(n)}/>
+          ):(
           <div style={{border:'2px solid #e5e7eb',borderRadius:9,overflow:'hidden'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'#eef2ff',borderBottom:'1px solid #d1d5db'}}>
               {DOW2.map((d,i)=>(
@@ -8945,9 +9388,10 @@ const StaffCalendarModal=memo(({isOpen,onClose,initMonth,currentUser,adminMode,v
               </div>
             ))}
           </div>
+          )}
 
-          {/* 月次集計 */}
-          {monthlySummary.length>0&&(
+          {/* 月次集計（★全員表示の表には右端に同じ数字が出るので、名前を選んだ時だけ出す・v3.131.0） */}
+          {selStaff&&monthlySummary.length>0&&(
             <div style={{marginTop:14,padding:'11px 14px',background:'#f8fafc',borderRadius:9,border:'1px solid #e5e7eb'}}>
               <div style={{fontWeight:700,fontSize:12,color:'#374151',marginBottom:8}}>📊 {cy}年{cm+1}月 集計</div>
               <div style={{display:'flex',flexWrap:'wrap',gap:7}}>
@@ -10389,6 +10833,23 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
   };
   // ──────────────────────────────────────────────────────────
 
+  // ★カードの中で日にちを変えた時、【元の日】に付いている代車を返す（無ければ null）。v3.130.0
+  //   代車欄の表示と「一緒に移ります」の案内に使う。新しい日にもう帯がある時は使わない（呼ぶ側で見る）。
+  const cardMovedLoaner=()=>{
+    const oDk=originalDkRef.current;
+    if(isNew||!oDk||!modalDk||oDk===modalDk)return null;
+    const idx=modalIdxProp??initialData?._idx??0;
+    const curBk=type==='insp'?`insp-${modalDk}-${idx}`:`sched-${modalDk}-${timeSlot}`;
+    const oBk=type==='insp'?`insp-${oDk}-${idx}`:`sched-${oDk}-${timeSlot}`;
+    const nm=(initialData&&initialData.name)||form.name;
+    // 元の日の鍵そのものを持つ帯があれば、それ（数日貸しで新しい日にもかかっている時もこちら）
+    const byKey=getLoanerByKey(loanerRes,oBk,nm);
+    if(byKey)return {label:byKey.label,id:byKey.id};
+    if(getLoanerLabel(loanerRes,modalDk,form.name,curBk))return null;
+    const label=getLoanerLabel(loanerRes,oDk,nm,oBk);
+    if(!label)return null;
+    return {label,id:getLoanerIdForRow(loanerRes,oDk,nm,oBk)};
+  };
   // 代車期間チェック：スケジュール期間（入庫日→納車日）と代車の貸出期間の不一致を返す。
   // 一致・代車無し（代車削除でチェック解除）・レンタカーの場合は null。バナー表示と保存時確認で共用。
   const computeLoanerMismatch=()=>{
@@ -10434,7 +10895,8 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
         //   ★整備（sched）は bookingKey だけ付け替えて期間は動かさないので、ずらさない。
         let _rf=resFromDays(r), _rt=resToDays(r);
         const _od=origDk?dkToDays(origDk):null, _nd=dkToDays(localTargetDkRef.current||modalDk);
-        const _moves=!!(type==='insp'&&origBk&&String(r.bookingKey||'')===origBk&&_od!=null&&_nd!=null&&_rf!=null&&_rt!=null);
+        // ★整備も同じ日数ぶん動かして保存する（v3.130.0）ので、見比べる時もずらす
+        const _moves=!!(origBk&&String(r.bookingKey||'')===origBk&&_od!=null&&_nd!=null&&_rf!=null&&_rt!=null);
         if(_moves){ _rf+=_nd-_od; _rt+=_nd-_od; }
         if(_rf!=null&&_rt!=null){ const _a=daysToYmd(_rf), _b=daysToYmd(_rt);
           loanFrom=toNum(_a.y,_a.m0,_a.d); loanTo=toNum(_b.y,_b.m0,_b.d); }
@@ -11059,10 +11521,16 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                   </>);
                 }
                 // -- 代車（従来ロジック）
-                const dynamicLoaner=pendingLoanerId!=null
+                let dynamicLoaner=pendingLoanerId!=null
                   ?(()=>{const c=(allCars&&allCars.length?allCars:LOANERS).find(x=>String(x.id)===String(pendingLoanerId));return c?`${c.name} (${c.num})`:''})()
                   :getLoanerLabel(loanerRes,modalDk,form.name,bk2);
-                const dynamicLoanerId=pendingLoanerId??getLoanerIdForRow(loanerRes,modalDk,form.name,bk2);
+                let dynamicLoanerId=pendingLoanerId??getLoanerIdForRow(loanerRes,modalDk,form.name,bk2);
+                // ★日にちを変えても、いま付いている代車をそのまま見せる（v3.130.0・2026-11-25）。
+                //   それまでは帯を【新しい日】で探していたので、日にちを変えた瞬間に代車欄が空に見えた。
+                //   現場は「代車が外れた」と思って選び直し、その保存で古い帯が元の日に残っていた。
+                //   帯は保存の時に日にちと一緒に動く（車検＝_mvLo／整備＝_scMv）ので、選び直さなくてよい。
+                const _mv=cardMovedLoaner();
+                if(pendingLoanerId==null&&!dynamicLoaner&&_mv){ dynamicLoaner=_mv.label; dynamicLoanerId=_mv.id; }
                 // ⑤ 限定：保存済みの代車予約（bookingKey一致）を探し、その locked を切り替える
                 const _lockResv=(dynamicLoanerId!=null&&pendingLoanerId==null)?Object.values(loanerRes[dynamicLoanerId]||{}).find(r=>r.bookingKey===bk2):null;
                 // ★まだ保存していない（いま選んだばかりの）代車にも限定を付けられるようにする。
@@ -11089,6 +11557,11 @@ const BookingModal=memo(({storeId,isOpen,onClose,type,initialData,isNew,dateLabe
                 </>);
               })()}
             </div>
+            {pendingLoanerId==null&&!(pendingRentalId!=null&&pendingRentalRec)&&cardMovedLoaner()&&(
+              <div data-loanerfollow="1" style={{marginTop:4,fontSize:11,fontWeight:700,color:'#0f766e'}}>
+                📅 日にちを変えても、この代車は一緒に移ります（選び直さなくて大丈夫です）
+              </div>
+            )}
           </div>
           {/* 代車期間チェック：スケジュール期間（入庫日→納車日）と代車予約期間の不一致を警告（非ブロッキング・手動修正） */}
           {(()=>{
@@ -13691,11 +14164,20 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
     if(m[1]==='insp'){
       const rows=(inspData||{})[m[2]]||[];
       const row=rows[Number(m[3])]||null;
-      if(row&&row.name)return {kind:'insp',dk:m[2],at:m[3],row,bk,store:null};
+      // ★その行が【本人の・生きている予約】の時だけ「その予約」とみなす（v3.130.0・2026-11-25）。
+      //   整備（下）には 2026-10-14 から氏名の確かめがあったのに、車検だけ抜けていた。
+      //   行番号はずれるので、帯の指す行に【別のお客様】が入ると、その人の行と比べて
+      //   「車名ちがい」＋本人が「カードだけ」の2件に化けていた（本番 2027/1/9 の実例）。
+      //   ★キャンセル・日にち変更の帯の行（bookingStatus:'cancelled'）は予約ではない。
+      const live=r=>!!(r&&r.name&&r.bookingStatus!=='cancelled');
+      if(live(row)&&(!who||row.name===who))return {kind:'insp',dk:m[2],at:m[3],row,bk,store:null};
       // ★行番号がずれただけ＝同じ日に同じ氏名の車検があればそれ（2026-10-14）
-      const i=who?rows.findIndex(r=>r&&r.name===who):-1;
+      const i=who?rows.findIndex(r=>live(r)&&r.name===who):-1;
       if(i>=0)return {kind:'insp',dk:m[2],at:String(i),row:rows[i],bk:'insp-'+m[2]+'-'+i,store:null};
-      return {kind:'insp',dk:m[2],at:m[3],row:null};
+      // ★氏名の無い帯（古いデータ）は、今までどおりその行と比べる
+      if(!who&&row&&row.name)return {kind:'insp',dk:m[2],at:m[3],row,bk,store:null};
+      const cx=rows.some(r=>r&&r.name&&r.bookingStatus==='cancelled'&&(!who||r.name===who));
+      return {kind:'insp',dk:m[2],at:m[3],row:null,cx};
     }
     // ★整備は**両店**を見る（2026-10-14）。代車は店をまたいで貸すので、
     //   見ている店の表だけ見ていると他店の予約が「無い」ことになり、ズレでないものがズレに出る。
@@ -13738,7 +14220,8 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
           if(!f||!f.row||!f.row.name){
             out.push({kind,type:'row',bk:r.bookingKey,user:r.user,want,carId:cid,resId:r.id,barStore,
               dk:(r.fy!=null?(r.fy+'-'+(r.fm+1)+'-'+r.fd):''),endNum:endOf(r),
-              text:'スケジュールに予約が見つかりません（予約が消された／日にちが変わった可能性）'});
+              text:(f&&f.cx)?'スケジュールの予約はキャンセル（または日にち変更）されています。貸出だけが残っています'
+                            :'スケジュールに予約が見つかりません（予約が消された／日にちが変わった可能性）'});
             return;
           }
           const row=f.row;
@@ -13759,6 +14242,10 @@ const LoanerGrid=memo(({loanerRes,loanerMonth,setLoanerMonth,onDeleteRes,onRepla
     // 逆向き：予約カードには代車名があるのに、代車管理に帯が無い
     const rev=(dk,at,row,kind)=>{
       if(!row||!row.name)return;
+      // ★キャンセル・日にち変更の帯の行は数えない（v3.130.0・2026-11-25）。
+      //   帯は記録として代車名を残すが、貸出は正しく外れている＝ズレではない。
+      //   数えていたので、代車つきの予約をキャンセルするたびに必ず1件出ていた。
+      if(row.bookingStatus==='cancelled')return;
       const lbl=(row.loaner||'').trim(), rlbl=(row.rentalLabel||'').trim();
       if(!lbl&&!rlbl)return;
       const bk=kind+'-'+dk+'-'+at;
@@ -15717,11 +16204,15 @@ function AppInner() {
   //   ③ レンタカーは消す処理そのものが無かった
   //   ①が「代車管理にあるのにカードが空」「カードにあるのに帯が無い」の出どころ。
   //   **必ず氏名が一致する行にだけ書くこと**（この決まりは「直す」「入れ替え」と同じ）。
-  const clearCarLabelOnDelete=useCallback((res,isRental)=>{
+  // ★書く中身（setTo）を渡すと、その代車名を【入れる】（「↶ 戻す」で帯を戻した時に使う・v3.130.0）。
+  //   渡さなければ今までどおり【消す】。どちらも氏名が一致する行にだけ書く。
+  const writeCarLabelByRes=useCallback((res,isRental,setTo)=>{
     if(!res||!res.bookingKey)return;
     const who=res.user||'';
-    const patch=isRental?{rentalLabel:'',rentalCarId:null}:{loaner:'',loanerId:null};
-    const has=r=>!!(isRental?(r.rentalLabel||r.rentalCarId):(r.loaner||r.loanerId));
+    const patch=setTo||(isRental?{rentalLabel:'',rentalCarId:null}:{loaner:'',loanerId:null});
+    const has=setTo
+      ?(r=>Object.keys(patch).some(k=>String(r[k]==null?'':r[k])!==String(patch[k]==null?'':patch[k])))   // まだ違う＝書く
+      :(r=>!!(isRental?(r.rentalLabel||r.rentalCarId):(r.loaner||r.loanerId)));
     const m=String(res.bookingKey).match(/^(insp|sched)-(\d+-\d+-\d+)-(.*)$/);
     if(!m||!who)return;
     const dk=m[2], at=m[3];
@@ -15749,6 +16240,21 @@ function AppInner() {
       });
     });
   },[persistInsp,setSchedDataH,setSchedDataS]);
+  // ★同じ予約を指す帯が【まだ残っている】なら、カードの代車名は消さない（v3.130.0・2026-11-25）。
+  //   本番で2回起きた形：整備の日にちを変えて代車を選び直すと、古い帯が元の日に残り、
+  //   しかもその帯の紐付けは【動かした後の予約】を指していた。現場がその古い帯を消すと、
+  //   ここが動かした後の予約の代車名を消し、「帯はあるのにカードが空」になった
+  //   （1日の印刷・紙の控えで代車の欄が空になる）。
+  //   残っている帯があるかは【両店の代車の表】で見る（代車は店をまたいで貸す）。
+  const clearCarLabelOnDelete=useCallback((res,isRental)=>{
+    if(!res||!res.bookingKey)return;
+    const who=_resNm(res.user);
+    const tables=isRental?[rresRef.current]:[lresHRef.current,lresSRef.current];
+    const still=tables.some(t=>Object.values(_resObj(t)).some(days=>Object.values(days||{}).some(r=>
+      r&&r.id!==res.id&&r.bookingKey===res.bookingKey&&(!_resNm(r.user)||!who||_resNm(r.user)===who))));
+    if(still)return;
+    writeCarLabelByRes(res,isRental,null);
+  },[writeCarLabelByRes]);
   // ★レンタカーの帯を消した時も予約カードの「🔑 …」を消す（2026-10-14。それまで消していなかった）
   const deleteRentalRes = useCallback((carId,resId) => {
     const rec=Object.values(_resObj(rresRef.current)[carId]||{}).find(r=>r&&r.id===resId);
@@ -17192,9 +17698,89 @@ function AppInner() {
         console.log('[SAVE] 移動先idx',modalIdx,'は使用中→空きスロット',_dcPlaceIdx,'へ配置');
       }
     }
+    // ★整備：入庫制限は【1文字も書く前に】見る（v3.130.0・2026-11-25）。
+    //   それまでは下の「代車の帯を書く」より【後】で見ていたので、制限で弾かれた時に
+    //   帯だけが先に書かれ、予約は保存されない＝「貸出だけ残る」ズレの出どころになっていた。
+    //   判定は下（整備予約：入庫制限チェック）とまったく同じ式。下は念のため残してある。
+    if(modalType!=='insp'){
+      const _rSlot=formData._slot||modalSlot||getBaseSlot(formData.time||'')||'未定';
+      const _rRestr=machMerge(schedRestrictions[modalDk],
+        machAutoRanges((inspData&&inspData[modalDk])||[],vsId,schedRestrictions[modalDk]));
+      const _rPre=(!modalIsNew&&schedData&&schedData[modalDk])?schedData[modalDk][modalSlot]:null;
+      if(_rRestr&&restrCovers(_rRestr,_rSlot)&&!machPreexisting(_rRestr,_rPre)&&!restrPasses(_rRestr,cleanData)){
+        alert(`🚫 この時間帯（${restrLabels(_rRestr).join('／')}）は入庫制限中です。\n制限解除されている作業内容のみ予約可能です。`);
+        return;   // カードは開いたまま・代車の帯も書かない
+      }
+    }
     // この保存で代車／レンタカーを _dcPlaceIdx のbookingKeyで登録するか（後で付け替えるかの判断に使う）
     const _hadLoanerForBk=!!pendingLoanerData;
     const _hadRentalForBk=!!(pendingRentalId!=null&&pendingRentalRec);
+    // この予約の氏名（いま打った名前と、保存されている名前）。帯を外す・動かす時の照合に使う。
+    //   ★整備の bookingKey（sched-日付-枠）は【店ごとに別の表】なので、本店と三田店で同じ鍵に
+    //     なり得る。鍵だけで外すと、他店のお客様の帯まで外しかねない＝必ず氏名も見る。
+    const _scO0=formData._originalDk||originalModalDkRef.current||modalDk;
+    const _scT0=formData._targetDk||modalDk;
+    const _ownOldName=modalType==='insp'
+      ?(((inspData[_dcOrigDk||modalDk]||[])[modalIdx]||{}).name)
+      :((((schedData||{})[_scO0]||{})[modalSlot]||{}).name);
+    const _ownNames=[cleanData.name,_ownOldName].filter(Boolean);
+    const _rmNames=modalType==='insp'?[]:_ownNames;   // 車検の鍵は両店で1つの表＝取り違えない
+    let _luRef=null;   // いま選んだ代車の帯（下で作る）。整備は置き場所が決まってから鍵を直す
+
+    // ★★整備も、日にちを変えたら代車の帯を《一緒に動かす》（v3.130.0・2026-11-25 ユーザー決定）
+    //   ユーザーの言葉：「代車を選んでいるのであれば、日にちを変えたとしても、ズレが出ないように。
+    //   常にズレは0件でないといけない」。
+    //   〈それまで〉整備は帯の紐付けだけを付け替え、期間は動かさなかった。しかも日にちを変えると
+    //   カードの代車欄が空に見える（帯を新しい日で探すため）ので、現場は代車を選び直していた。
+    //   その保存で古い帯が元の日に残り、それを消すと動かした後の予約の代車名まで消えていた
+    //   （本番で 11/16・11/24 の2回。帯はあるのにカードが空＝印刷の代車欄が空になる）。
+    //   〈直し〉車検（_mvLo）と同じ：選び直していない／外していない時は、同じ車・同じ長さのまま
+    //   動かした日数ぶんずらす。移した先でその車がふさがっていたら【保存そのものを止める】。
+    let _scMv=null;
+    if(modalType!=='insp'&&!modalIsNew&&_scO0&&_scT0&&_scO0!==_scT0&&!_hadLoanerForBk&&!pendLoanerDrop){
+      const _oBk=`sched-${_scO0}-${modalSlot}`, _pre=`sched-${_scO0}-`;
+      const _nms=_ownNames.map(_resNm);
+      const _cand=[];
+      for(const _st of ['honten','sanda']){
+        const _obj=(_st==='honten'?lresHRef.current:lresSRef.current)||{};
+        Object.keys(_obj).forEach(cid=>Object.values(_obj[cid]||{}).forEach(r=>{
+          if(!r||!r.bookingKey)return;
+          if(_resNm(r.user)&&!_nms.includes(_resNm(r.user)))return;          // 別のお客様の帯
+          if(r.bookingKey===_oBk)_cand.unshift({store:_st,carId:cid,rec:r,exact:true});
+          else if(_resNm(r.user)&&String(r.bookingKey).indexOf(_pre)===0)_cand.push({store:_st,carId:cid,rec:r});
+        }));
+      }
+      // 鍵がぴったりの帯。無ければ「同じ日・同じ氏名」が1本だけの時にかぎってそれ（2本以上は決められない）
+      const _hit=_cand.find(c=>c.exact)||(_cand.length===1?_cand[0]:null);
+      const _d0=dkToDays(_scO0), _d1=dkToDays(_scT0);
+      const _f0=_hit?resFromDays(_hit.rec):null, _t0=_hit?resToDays(_hit.rec):null;
+      if(_hit&&_d0!=null&&_d1!=null&&_f0!=null&&_t0!=null){
+        const _nF=_f0+(_d1-_d0), _nT=_t0+(_d1-_d0);
+        const _nf=daysToYmd(_nF), _nt=daysToYmd(_nT);
+        const _obj=(_hit.store==='honten'?lresHRef.current:lresSRef.current)||{};
+        const _clash=Object.values(_obj[_hit.carId]||{}).filter(r=>r&&r.id!==_hit.rec.id
+          &&resFromDays(r)!=null&&_nF<=resToDays(r)&&_nT>=resFromDays(r));
+        if(_clash.length){
+          const _lbl=`${_hit.rec.carName||'代車'}${_hit.rec.carNum?` (${_hit.rec.carNum})`:''}`;
+          const _who=_clash.map(r=>`${r.user||'(名前なし)'}（${r.fm+1}/${r.fd}〜${(r.tm==null?r.fm:r.tm)+1}/${r.td==null?r.fd:r.td}）`).join('、');
+          alert(`⚠ 日にちを変えられません（代車が空いていません）
+
+${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使います。
+
+この予約には代車が付いているので、日にちだけ変えると
+「カードに代車名はあるのに、車が1台もおさえられていない」状態になります。
+
+先に【代車】の「選択」で別の車を選び直すか、代車を外してから日にちを変えてください。`);
+          return;   // ★1文字も書かずに止める
+        }
+        _scMv={store:_hit.store,carId:_hit.carId,rec:_hit.rec,from:_nf,to:_nt};
+        // ★帯があるのにカードの代車名が空なら、ここで入れておく
+        if(!cleanData.loaner&&_hit.rec.carName){
+          cleanData.loaner=`${_hit.rec.carName}${_hit.rec.carNum?` (${_hit.rec.carNum})`:''}`;
+          cleanData.loanerId=isNaN(Number(_hit.carId))?_hit.carId:Number(_hit.carId);
+        }
+      }
+    }
 
     // ★★【重大】車検の日にちを変えた時、代車の帯を《消さずに一緒に動かす》（v3.117.0・2026-11-14）
     //   〈それまでの不具合〉下の「旧予約分の解除」が、日にちを変えるだけで帯を消していた。
@@ -17288,6 +17874,10 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
         fd:_lu.startDay,ty:_lu.endYear??_lu.startYear,tm:_lu.endMonth??_lu.startMonth,td:_lu.endDay,
         user:_lu.finalUser,color:_lu.color,bookingKey:_lu.bk,
         carName:_lu.carName,carNum:_lu.carNum};
+      // ★この予約の【古い帯】も、新しい帯を書くのと同じ1回の書き込みで外す（v3.130.0）。
+      //   extra＝一緒に外す鍵（整備は置き場所が決まってから下で足す）。書き込みを2本に分けると
+      //   順番が入れ替わって古い帯が残る（本番で起きた形）。
+      _luRef={lu:_lu,rec:_luRec,extra:[],pld:_pldBk};
       // ★確定の瞬間にもう一度、同じ車が同じ期間で使われていないか見る。
       //   重複チェックは「代車を選ぶ瞬間」にしか無く、選んでから「✓予約確定」を押すまでの
       //   間に他の予約がその車を取ると、そのまま二重で登録されていた。代車管理は1台1日1件
@@ -17318,7 +17908,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
       setTimeout(()=>persistLres(
         // ★キーは「年-月-日」（"日"だけだと別の月で同じ日に始まる予約とキーが衝突する。
         //   最適化経路(rkey)は既に年-月-日だったが、この登録経路だけ直し漏れていた）
-        base=>putResRec(removeResByBk(base,[_lu.bk,_pldBk]),_lu.carId,`${_luRec.fy}-${_luRec.fm}-${_luRec.fd}`,_luRec),
+        base=>putResRec(removeResByBkUser(base,[_lu.bk,_pldBk,..._luRef.extra],_rmNames,_luRec.id),_lu.carId,`${_luRec.fy}-${_luRec.fm}-${_luRec.fd}`,_luRec),
         back=>resHasRec(back,_lu.carId,_luRec.id),
         {verb:'登録',name:_lu.finalUser}
       ), 0);
@@ -17346,6 +17936,14 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
       cleanData.rentalCarId=null;
       setPendingLoanerData(null);
       setPendingLoanerId(null);
+    }
+    // ★車検：選び直した時、この予約の古い帯が【他店の代車表】にあればそちらからも外す（v3.130.0）。
+    //   新しい帯は「いま見ている店」の表に書くので、他店に残った古い帯は誰も外していなかった。
+    //   （整備は置き場所が決まってから、下の整備の枝で同じことをする）
+    if(_luRef&&modalType==='insp'){
+      const _oth=vsId==='honten'?'sanda':'honten', _bks=[_luRef.lu.bk,_luRef.pld].filter(Boolean);
+      persistLresOf(_oth,base=>_bks.some(k=>resHasBk(base,k))?removeResByBk(base,_bks):undefined,
+        back=>!_bks.some(k=>resHasBk(back,k)),{verb:'古い貸出の解除',alert:false});
     }
 
     // ★削除の印を確定：予約カードで「削除」した代車・レンタカーを、ここで初めてサーバーから外す
@@ -17619,13 +18217,14 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
         }else if(_delBk||_delIdent){
           const oldBk=_delBk;
           const _gone=b=>!(oldBk&&resHasBk(b,oldBk))&&!resHasBooking(b,_delIdent);
-          persistLres(
+          // ★両店の代車表から外す（v3.130.0）。代車は店をまたいで貸すので、見ている店だけでは残る。
+          ['honten','sanda'].forEach(_st=>persistLresOf(_st,
             base=>_gone(base)
               ?undefined
               :removeResByBooking(oldBk?removeResByBk(base,[oldBk]):base,_delIdent),
             back=>_gone(back),
-            {verb:'旧予約分の解除'}
-          );
+            {verb:'旧予約分の解除',alert:_st===vsId}
+          ));
           setPendingLoanerDeleteBk('');
         }
         // ★レンタカーは期間を動かさず bookingKey だけ付け替える（整備と同じ）。
@@ -17775,12 +18374,52 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
       // bookingKeyも新日付・新スロット（割り当て後）に更新（代車紐付けを維持）
       const _scOldBk=`sched-${_scOrigDk}-${modalSlot}`;
       const _scNewBk=`sched-${_scTgtDk}-${_scFinalSlot}`;
-      if(_scOldBk!==_scNewBk){
-        persistLres(
-          base=>resHasBk(base,_scOldBk)?retagResBk(base,_scOldBk,_scNewBk):undefined,
-          back=>!resHasBk(back,_scOldBk),
-          {verb:'紐付けの更新'}
-        );
+      const _scOther=vsId==='honten'?'sanda':'honten';
+      // 氏名の合う帯だけ、鍵を付け替える（他店のお客様が同じ鍵を持っていることがある）
+      const _scRetag=(base)=>{
+        const src=_resObj(base),out={}; let ch=false;
+        const nms=_ownNames.map(_resNm);
+        for(const cid of Object.keys(src)){
+          const days={...(src[cid]||{})};
+          Object.keys(days).forEach(k=>{
+            const r=days[k];
+            if(!r||r.bookingKey!==_scOldBk)return;
+            if(_resNm(r.user)&&nms.length&&!nms.includes(_resNm(r.user)))return;
+            days[k]={...r,bookingKey:_scNewBk}; ch=true;
+          });
+          out[cid]=days;
+        }
+        return ch?out:undefined;
+      };
+      if(_luRef){
+        // ★代車を選び直した：新しい帯の鍵を【実際に置いた枠】に合わせ、古い帯は同じ書き込みで外す。
+        //   （それまでは帯の鍵を元の枠名で作り、別の書き込みで付け替えていた＝順番が入れ替わると
+        //     古い帯が元の日に残り、しかも動かした後の予約を指していた）
+        _luRef.lu.bk=_scNewBk; _luRef.rec.bookingKey=_scNewBk;
+        if(_scOldBk!==_scNewBk)_luRef.extra.push(_scOldBk);
+        // 古い帯が他店の代車表にある時は、そちらからも外す
+        persistLresOf(_scOther,
+          base=>resHasBkUser(base,[_scOldBk,_scNewBk],_ownNames)?removeResByBkUser(base,[_scOldBk,_scNewBk],_ownNames):undefined,
+          back=>!resHasBkUser(back,[_scOldBk,_scNewBk],_ownNames),
+          {verb:'古い貸出の解除',alert:false});
+      }else if(_scMv){
+        // ★日にちを変えた：同じ車・同じ長さのまま、動かした日数ぶんずらして付け替える（1回の書き込み）
+        const _R=_scMv.rec, _C=_scMv.carId;
+        const _nr={..._R,fy:_scMv.from.y,fm:_scMv.from.m0,fd:_scMv.from.d,ty:_scMv.to.y,tm:_scMv.to.m0,td:_scMv.to.d,
+          bookingKey:_scNewBk,user:cleanData.name||_R.user,savedAt:Date.now()};
+        persistLresOf(_scMv.store,
+          base=>resHasRec(base,_C,_R.id)?putResRec(removeResById(base,_C,_R.id),_C,`${_nr.fy}-${_nr.fm}-${_nr.fd}`,_nr):undefined,
+          back=>{const r=Object.values(_resObj(back)[_C]||{}).find(x=>x&&x.id===_R.id);return !r||r.bookingKey===_scNewBk;},
+          {verb:'日にち変更にあわせた付け替え',name:_R.user});
+      }else if(_scOldBk!==_scNewBk){
+        // 時間（枠）だけ変えた：鍵の付け替えだけ。★両店の代車表を見る
+        ['honten','sanda'].forEach(_st=>persistLresOf(_st,_scRetag,
+          back=>!resHasBkUser(back,[_scOldBk],_ownNames),{verb:'紐付けの更新',alert:_st===vsId}));
+      }
+      // ★レンタカーは期間を動かさず、鍵だけ付け替える（長期貸しが多いため。車検と同じ決まり）。
+      //   整備ではこの付け替えそのものが無く、日にちや時間を変えると帯が元の枠を指したままだった。
+      if(_scOldBk!==_scNewBk&&!_hadRentalForBk&&!pendRentalDrop){
+        persistRres(_scRetag,back=>!resHasBkUser(back,[_scOldBk],_ownNames),{verb:'紐付けの更新',alert:false});
       }
     }
     // ★日にち変更のあと、画面は【元の日】に留める（イ案・2026-11-16 ユーザー決定）。
@@ -17803,7 +18442,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
     setCurLockKey(null);
     setTimeout(()=>releaseLock(keyToRelease),200);
     setFromCustList(false);setCustModalMeta(null);
-  },[modalType,modalDk,modalIdx,modalSlot,vsId,curLockKey,releaseLock,setInspData,updateLocalInspData,setSchedData,schedData,schedDataH,schedDataS,setSchedDataH,setSchedDataS,persistLres,selDate,schedRestrictions,setModalOpen,inspLimits,pendingRentalId,pendingRentalRec,pendingLoanerId,pendingLoanerData,pendLoanerDrop,pendRentalDrop,persistRres,persistLresOf,pendingLoanerDeleteBk,dynRentalCars,fromCustList,custModalMeta,setCustBookings,setCustFiles,inspData]);
+  },[modalType,modalDk,modalIdx,modalSlot,vsId,curLockKey,releaseLock,setInspData,updateLocalInspData,setSchedData,schedData,schedDataH,schedDataS,setSchedDataH,setSchedDataS,persistLres,selDate,schedRestrictions,setModalOpen,inspLimits,pendingRentalId,pendingRentalRec,pendingLoanerId,pendingLoanerData,pendLoanerDrop,pendRentalDrop,persistRres,persistLresOf,pendingLoanerDeleteBk,dynRentalCars,fromCustList,custModalMeta,setCustBookings,setCustFiles,inspData,modalIsNew]);
 
   // ★帯（キャンセル／日にち変更の記録）そのものを消す。入力し間違えた時だけ使う。
   //   ★顧客リストには何も知らせない（リスト側の帯の色は現場が ✎ 編集で直す）。
@@ -17923,11 +18562,18 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
     // ★連動削除: その予約に紐づく代車予約を削除（サーバー最新値ベース＋読み返し検証）。
     //   bookingKey が合わなければ【同じ日・同じ氏名】の帯を外す（resBksForBooking）。
     //   ずれた行番号のせいで代車が外れず、ふさがったまま残るのを防ぐ（2026-11-17）。
-    persistLres(
-      base=>{const _bks=resBksForBooking(base,bk,_bkName);return _bks.length?removeResByBk(base,_bks):undefined;},
-      back=>resBksForBooking(back,bk,_bkName).length===0,
-      {verb:'削除'}
-    );
+    // ★【両店】の代車の表から外す（v3.130.0・2026-11-25）。代車は店をまたいで貸すので、
+    //   いま見ている店の表（persistLres）だけを見ていると、他店の車を貸している予約を
+    //   消した時に帯が残る＝その車はふさがったまま（本番 2027/1/9 の古い帯が残った理由）。
+    //   ★氏名の合う帯だけ外す（整備の bookingKey は店ごとに別の表なので、両店で同じ鍵になり得る）。
+    ['honten','sanda'].forEach(_st=>{
+      if(_st!==vsId&&!_resNm(_bkName))return;   // 氏名が分からない時は、他店の表には触らない
+      persistLresOf(_st,
+        base=>{const _bks=resBksForBooking(base,bk,_bkName);return (_bks.length&&resHasBkUser(base,_bks,_bkName))?removeResByBkUser(base,_bks,_bkName):undefined;},
+        back=>{const _bks=resBksForBooking(back,bk,_bkName);return !(_bks.length&&resHasBkUser(back,_bks,_bkName));},
+        {verb:'削除',alert:_st===vsId}
+      );
+    });
 
     // ★連動削除: レンタカーも同じ（同上）
     persistRres(
@@ -17959,7 +18605,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
     }
 
     releaseLock(curLockKey);setCurLockKey(null);setModalOpen(false);
-  },[modalType,modalDk,modalIdx,modalSlot,curLockKey,releaseLock,persistInsp,setSchedData,schedData,persistLres,persistRres,inspData,syncCustStatus,inspLimits]);
+  },[modalType,modalDk,modalIdx,modalSlot,curLockKey,releaseLock,persistInsp,setSchedData,schedData,persistLres,persistLresOf,vsId,persistRres,inspData,syncCustStatus,inspLimits]);
 
   // 承認ハンドラー（承認もサーバー最新値ベース。対象を本人性で特定し approved を立てる）
   // ★入庫済みチェック（任意）。名前の横の〇を押すと黄色地に赤チェックが点く。
@@ -18248,48 +18894,92 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
     // userNameで照合する。※消す対象は「今画面に見えている予約」から id で確定させる。
     //   再送のたびに userName で探し直すと、その間に入った同名の別予約まで巻き込むため。
     const _cur=_resObj(loanerRes)[loanerId]||{};
-    const _hasExact=Object.values(_cur).some(r=>r?.bookingKey===bk);
+    // ★カードの中で日にちを変えている時は、帯はまだ【元の日】の鍵を持っている（v3.130.0）。
+    //   元の日の鍵でも探す。氏名で探す時は【この予約の日にかかる帯だけ】に絞る
+    //   （絞らないと、同じお客様の別の日の貸出まで一緒に外してしまう）。
+    const _oDk=originalModalDkRef.current||modalDk;
+    const _bkO=modalType==='insp'?`insp-${_oDk}-${modalIdx}`:`sched-${_oDk}-${modalSlot}`;
+    const _bks=[bk,_bkO].filter((v,i,a)=>v&&a.indexOf(v)===i);
+    const _hasExact=Object.values(_cur).some(r=>r&&_bks.includes(r.bookingKey));
+    const _near=r=>[modalDk,_oDk].some(dk=>{
+      const n=dkToDays(dk); if(n==null)return false;
+      if(String(r.bookingKey||'').indexOf('-'+dk+'-')>0)return true;
+      return resFromDays(r)!=null&&n>=resFromDays(r)&&n<=resToDays(r);
+    });
     const _rmIds=Object.values(_cur)
-      .filter(r=>r&&(_hasExact?r.bookingKey===bk:(userName&&r.user===userName)))
+      .filter(r=>r&&(_hasExact?_bks.includes(r.bookingKey):(userName&&r.user===userName&&_near(r))))
       .map(r=>r.id).filter(v=>v!=null);
     // ★この予約に紐づく帯は、別の車の下にあることもある（選び直した直後など）。bookingKey でも拾う。
-    const _bkAny=resHasBk(loanerRes,bk);
-    if(_rmIds.length||_bkAny)
-      setPendLoanerDrop({carId:loanerId,ids:_rmIds,bk:_bkAny?bk:'',user:userName||''});
+    const _bkHit=_bks.find(b=>resHasBk(loanerRes,b))||'';
+    if(_rmIds.length||_bkHit)
+      setPendLoanerDrop({carId:loanerId,ids:_rmIds,bk:_bkHit,user:userName||''});
   },[modalType,modalDk,modalIdx,modalSlot,loanerRes,pendingRentalRec]);
 
   // 代車予約の期間編集は1回のatomic更新で差し替える（delete+addの競合を防ぐ）。
   //   bookingKey / carName / carNum / locked などの既存フィールドはそのまま残るので紐付けが切れない。
   const replaceLoanerRes=useCallback((cid,rid,patch0)=>{
     const patch={...(patch0||{}),savedAt:Date.now()};   // ★編集は savedAt を打ち直す（sharedRecTs 参照）
-    setLoanerUndo(u=>[...u,{prevState:loanerRes}]);
+    // ★「↶ 戻す」用に覚えるのは【変えた所だけ】（v3.130.0）。代車表を丸ごと覚えない（undoLoanerRes を見ること）
+    { const _d=resDiff(loanerRes,patchResRec(loanerRes,cid,rid,patch)); if(_d.length)setLoanerUndo(u=>[...u.slice(-19),{kind:'lres',store:vsId,diff:_d}]); }
     persistLres(
       base=>resHasRec(base,cid,rid)?patchResRec(base,cid,rid,patch):undefined,
       back=>{const r=Object.values(_resObj(back)[cid]||{}).find(x=>x&&x.id===rid);
              return !!r&&Object.keys(patch||{}).every(k=>JSON.stringify(r[k])===JSON.stringify(patch[k]));},
       {verb:'期間の変更',name:patch?.user}
     );
-  },[persistLres,loanerRes]);
+  },[persistLres,loanerRes,vsId]);
   const deleteLoanerRes=useCallback((cid,rid)=>{
-    setLoanerUndo(u=>[...u,{prevState:loanerRes}]);
+    { const _d=resDiff(loanerRes,removeResById(loanerRes,cid,rid)); if(_d.length)setLoanerUndo(u=>[...u.slice(-19),{kind:'lres',store:vsId,diff:_d}]); }
     // loanerResから削除
-    const deletedRes=Object.values(loanerRes[cid]||{}).find(r=>r.id===rid);
+    const deletedRes=Object.values(loanerRes[cid]||{}).find(r=>r&&r.id===rid);
     persistLres(
       base=>resHasRec(base,cid,rid)?removeResById(base,cid,rid):undefined,
       back=>!resHasRec(back,cid,rid),
       {verb:'削除',name:deletedRes?.user}
     );
     clearCarLabelOnDelete(deletedRes,false);
-  },[persistLres,loanerRes,clearCarLabelOnDelete]);
-  // 「↶ 戻す」と「最適化の適用」は代車予約を丸ごと差し替える操作なので、mutate はサーバー最新値を
-  // 見ずにスナップショットをそのまま返す（＝意図した通りの一括差し替え）。ただし書きっぱなしにはせず
-  // 読み返し検証は通す（着地しなければアラート＋メール通知）。
+  },[persistLres,loanerRes,clearCarLabelOnDelete,vsId]);
+  // ★★「↶ 戻す」は【直前の1操作で変えた所だけ】を打ち消す（v3.130.0・2026-11-25）。
+  //   それまでは、操作の前に覚えた代車表を【丸ごと】サーバーへ書き戻していた
+  //   （persistLres(()=>snap,…)）。覚えた写しに期限は無く、画面を開いている間ずっと残るので、
+  //   ① その間に【他の端末が足した貸出が消える】（カードに代車名があるのに車がおさえられていない）
+  //   ② 帯は戻るのに【予約カードの代車名は戻らない】（帯を消した時にカードの名前も消しているため）
+  //   ③ 店を切り替えてから押すと、別の店の代車表へ書く
+  //   の3つが起きた（①②は再現済み）。
+  //   ★覚えるのは resDiff の差分。戻す時はサーバーの最新の表に resApplyDiff で当てる。
+  //   ★戻す先に別の貸出が入っていたら戻さない（二重貸しを作らない）。
+  //   ★代車表を丸ごと書き戻す形（()=>snap）に戻さないこと。
   const undoLoanerRes=useCallback(()=>{
     if(!loanerUndo.length)return;
-    const snap=loanerUndo[loanerUndo.length-1].prevState;
-    persistLres(()=>snap,back=>JSON.stringify(back)===JSON.stringify(snap),{verb:'「戻す」'});
+    const e=loanerUndo[loanerUndo.length-1];
     setLoanerUndo(u=>u.slice(0,-1));
-  },[loanerUndo,persistLres]);
+    if(!e||!Array.isArray(e.diff)||!e.diff.length)return;
+    const isR=e.kind==='rres';
+    const cur=isR?(rresRef.current||{}):((e.store==='honten'?lresHRef.current:lresSRef.current)||{});
+    const hits=resDiffClash(cur,e.diff,'before');
+    if(hits.length){
+      const B=String.fromCharCode(10);
+      alert('⚠ 元に戻せません'+B+B+'戻す先に、別の貸出が入っています：'+B
+        +hits.slice(0,4).map(r=>'・'+(r.user||'(名前なし)')+'（'+(r.fm+1)+'/'+r.fd+'〜'+((r.tm==null?r.fm:r.tm)+1)+'/'+(r.td==null?r.fd:r.td)+'）').join(B)
+        +B+B+'表を見て、手で入れ直してください。');
+      return;
+    }
+    const p=isR?persistRres:((m,c,o)=>persistLresOf(e.store,m,c,o));
+    p(base=>resApplyDiff(base,e.diff,'before'),back=>resDiffLanded(back,e.diff,'before'),{verb:'「戻す」'});
+    // 予約カードの代車名も、戻した帯に合わせる（氏名が一致する行にだけ書く）
+    const cars=isR?(dynRentalCars||[]):((e.store==='honten'?dynLoanerListH:dynLoanerListS)||[]);
+    e.diff.forEach(d=>{
+      const b=d.before, a=d.after;
+      if(!b){ if(a&&a.rec&&a.rec.bookingKey)clearCarLabelOnDelete(a.rec,isR); return; }   // 足した帯を取り消した
+      const rec=b.rec; if(!rec||!rec.bookingKey)return;
+      const car=cars.find(c=>String(c.id)===String(b.cid))||{};
+      const nm=rec.carName||car.name||'', num=rec.carNum||car.num||'';
+      if(!nm)return;
+      const lbl=nm+(num?' ('+num+')':'');
+      const cidNum=isNaN(Number(b.cid))?b.cid:Number(b.cid);
+      writeCarLabelByRes(rec,isR,isR?{rentalLabel:'🔑 '+lbl,rentalCarId:cidNum}:{loaner:lbl,loanerId:cidNum});
+    });
+  },[loanerUndo,persistRres,persistLresOf,clearCarLabelOnDelete,writeCarLabelByRes,dynRentalCars,dynLoanerListH,dynLoanerListS]);
   // ⑤ 限定：この予約の代車を固定（最適化で動かさない）。locked を反転する。
   // ★まだ保存していない（いま選んだ）代車の限定を切り替える。保存時に一緒に書かれる。
   const togglePendingLoanerLock=useCallback(()=>{
@@ -18341,8 +19031,11 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
     delete from[k];
     const toKey=String(toCar);
     const next={...base,[String(fromKey)]:from,[toKey]:{...(base[toKey]||{}),[k]:moved}};
-    setLoanerUndo(u=>[...u,{prevRental:rentalResData}]);
-    persistRres(()=>next,back=>JSON.stringify(back)===JSON.stringify(next),{verb:'レンタカーの入れ替え',name:moved.user});
+    // ★代車と同じ：動かした帯だけを当てる／「↶ 戻す」もその分だけ（v3.130.0）
+    const _rDiff=resDiff(rentalResData,next);
+    if(!_rDiff.length)return;
+    setLoanerUndo(u=>[...u.slice(-19),{kind:'rres',store:null,diff:_rDiff}]);
+    persistRres(base=>resApplyDiff(base,_rDiff,'after'),back=>resDiffLanded(back,_rDiff,'after'),{verb:'レンタカーの入れ替え',name:moved.user});
     // 予約カード側のラベルも書き換える（食い違いを残さない）
     const m=String(moved.bookingKey||'').match(/^(insp|sched)-(\d+-\d+-\d+)-(.*)$/);
     if(!m)return;
@@ -18489,8 +19182,12 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
       back=>resHasRec(back,car.id,rec.id),{verb:'貸出の作成',name:it.user});
   },[persistRres,persistLresOf,loanerListH,loanerListS,dynRentalCars]);
   const applyLoanerMove=useCallback((newLoanerRes,moves)=>{
-    setLoanerUndo(u=>[...u,{prevState:loanerRes}]);
-    persistLres(()=>newLoanerRes,back=>JSON.stringify(back)===JSON.stringify(newLoanerRes),{verb:'最適化の適用'});
+    // ★手元の表を丸ごと書かない（v3.130.0）。【動かした帯だけ】をサーバーの最新の表に当てる。
+    //   丸ごと書くと、この端末にまだ届いていない他の端末の貸出を消してしまう。
+    const _mvDiff=resDiff(loanerRes,newLoanerRes);
+    if(!_mvDiff.length)return;
+    setLoanerUndo(u=>[...u.slice(-19),{kind:'lres',store:vsId,diff:_mvDiff}]);
+    persistLres(base=>resApplyDiff(base,_mvDiff,'after'),back=>resDiffLanded(back,_mvDiff,'after'),{verb:'代車の入れ替え'});
     // ★最適化は代車予約(lres)だけを動かすが、予約カード側にも代車名(loaner/loanerId)が
     //   保存されている。ここを書き換えないと古い車名が残り、実際と食い違う。
     //   （2026-09-03 ユーザー報告：9/1でERエクスプレスと岩田さんに同じ N-BOX(9012) が
@@ -18540,7 +19237,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
         return out;
       });
     }
-  },[loanerRes,persistLres,persistInsp,setSchedData]);
+  },[loanerRes,persistLres,persistInsp,setSchedData,vsId]);
   const handleLockCar  =useCallback(cid=>acquireLock(`lock-loaner-${cid}`,currentUser.name),[acquireLock,currentUser]);
   const handleUnlockCar=useCallback(cid=>releaseLock(`lock-loaner-${cid}`),[releaseLock]);
 
@@ -19204,15 +19901,16 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                         {s.name}
                       </button>
                     ))}
-                    <span style={{display:'flex',alignItems:'center',gap:5,marginLeft:4,fontSize:10,color:'#6b7280'}}>
+                    {/* ★■休日 ■有給 の色の説明は、個人のカレンダーの時だけ（v3.134.2・2026-11-26 ユーザー指示：
+                        「全体の表示としてはもう省いていい」。全員の表は 休・有 の字で分かり、表の下にも説明がある） */}
+                    {calStaffFilter&&(
+                    <span data-offlegend="1" style={{display:'flex',alignItems:'center',gap:5,marginLeft:4,fontSize:10,color:'#6b7280'}}>
                       <span style={{width:11,height:11,borderRadius:2,background:'#f97316',display:'inline-block'}}/>休日
                       <span style={{width:11,height:11,borderRadius:2,background:'#10b981',display:'inline-block',marginLeft:4}}/>有給
                     </span>
-                    {/* 会社が決めた今月の休日数（表示のみ・入力は管理者4人） */}
-                    <MonthlyHolidayBadge y={cy} m={cm}
-                      value={(monthlyHolidays||{})[`${cy}-${cm+1}`]}
-                      canEdit={canRestore(currentUser)}
-                      onSave={saveMonthlyHoliday}/>
+                    )}
+                    {/* ★会社の休日数の札は、ここ（左上）には出さない。
+                        全員の表＝表の上の行の右端（v3.134.1）／個人のカレンダー＝右の集計の枠の上（v3.134.2）。 */}
                   </>
                 )}
 
@@ -19235,6 +19933,30 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
 
                 {/* 右端：カレンダー切替ボタン + 歯車 */}
                 <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0,flex:1,justifyContent:'flex-end'}}>
+                  {/* ★🖨 印刷（v3.132.0・2026-11-25 ユーザー指示）。「🏖 休日」を見ている時だけ出す。
+                      ユーザーの言葉：「休日ボタンを押すとカレンダーが出てくるので、そちらの方を、個人か全員か、
+                      選択してから、印刷ボタンを押すと、印刷のプレビューが出て印刷をするという形」。
+                      ★刷るのは【いま画面に出しているもの】＝全員なら表／名前を選んでいればその人の1か月。
+                      ★設定の「スタッフ休日・有給カレンダー」には置かない（v3.129.0〜v3.131.0 はそこにあった）。 */}
+                  {calView==='staff'&&(
+                    <button data-offprint="1" data-offprintwho={calStaffFilter||''}
+                      title={(calStaffFilter?(calStaffFilter+' さんの'):'全員の')+cy+'年'+(cm+1)+'月の休日表を印刷します（A4 横・1枚）'}
+                      onClick={()=>{
+                        const _off=vsId==='honten'?dayOffDataH:dayOffDataS, _pl=vsId==='honten'?paidLeaveDataH:paidLeaveDataS, _tr=vsId==='honten'?trainingDataH:trainingDataS;
+                        const _nt=(vsId==='honten'?offNoteH:offNoteS)||{};
+                        const _cd=Array.isArray(closedDays)?closedDays:[], _cdt=Array.isArray(closedDates)?closedDates:[];
+                        const _ov=Array.isArray(overrideOpenDates)?overrideOpenDates:[];
+                        const _isCl=(y,m,d)=>{const dt=new Date(y,m,d);return _cd.includes(dt.getDay())||_cdt.includes(fmt(y,m,d))||isSecondTuesdayHoliday(y,m,d,_ov);};
+                        staffOffPrintOpen({mode:calStaffFilter?'one':'table',who:calStaffFilter||null,storeName:vsStore.name,
+                          c:{y:cy,m:cm,dayOff:_off,pleave:_pl,trn:_tr,isClosed:_isCl,mh:monthlyHolidays},
+                          rosterNames:(vsId==='honten'?dynStaffH:dynStaffS).filter(s=>s.badge!=='president'&&s.myNumber!==0).map(s=>s.name),
+                          noteOf:(dkk,n)=>{const v=_nt[dkk+'::'+n];return typeof v==='string'?v:(v&&v.memo)||'';}});
+                      }}
+                      style={{display:'flex',alignItems:'center',gap:4,padding:'5px 11px',background:'#1f2937',border:'2px solid #1f2937',
+                        borderRadius:7,cursor:'pointer',fontSize:11,fontWeight:800,color:'white',whiteSpace:'nowrap',marginRight:4}}>
+                      <span style={{fontSize:13}}>🖨</span>印刷（{calStaffFilter?calStaffFilter:'全員'}）
+                    </button>
+                  )}
                   {/* カレンダー切替（車検／休日／予定）。2026-09-20 に「📝 予定」（マイスケジュール）を追加 */}
                   {[['insp','🚗','車検','#10b981','#f0fdf4','#059669'],['staff','🏖','休日','#f97316','#fff7ed','#ea580c'],['my','📝','予定','#7c3aed','#f5f3ff','#5b21b6']].map(([id,ic,l,bd,bg,fg])=>(
                     <button key={id} onClick={()=>{setCalView(id);setCalStaffFilter(null);}} title={l+'カレンダー'}
@@ -19430,33 +20152,42 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                   return false;
                 };
                 // 個人選択時の月間集計（店休日はスタッフ休日にカウント）
-                const staffMonthStats=calStaffFilter?(()=>{
-                  let offs=0,leaves=0,closedN=0,trn=0;
-                  const daysInM=new Date(cy,cm+1,0).getDate();
-                  for(let d=1;d<=daysInM;d++){
-                    const dkk=`${cy}-${cm+1}-${d}`;
-                    if(isStoreClosedDay(cy,cm,d)){offs++;closedN++;continue;} // 店休日はスタッフ休日としてカウント
-                    if((dayOffCur[dkk]||[]).includes(calStaffFilter))offs++;
-                    if((pleaveCur[dkk]||[]).includes(calStaffFilter))leaves++;
-                    if((trnCur[dkk]||[]).includes(calStaffFilter))trn++;   // ★別扱い
-                  }
-                  const carry=calcHolidayCarry(calStaffFilter,cy,cm,dayOffCur,isStoreClosedDay,monthlyHolidays);
-                  if(carry&&carry.over>0){offs-=carry.over;leaves+=carry.over;}   // 枠を超えた休日は有給に数える
-                  return{offs,leaves,trn,closedN,carry};
-                })():null;
+                // ★数え方は部品 staffOffSum（設定のカレンダー・印刷と同じ式。v3.132.0）
+                const offCtxV={y:cy,m:cm,dayOff:dayOffCur,pleave:pleaveCur,trn:trnCur,isClosed:isStoreClosedDay,mh:monthlyHolidays};
+                const staffMonthStats=calStaffFilter?staffOffSum(calStaffFilter,offCtxV):null;
+                // ★★全員＝【表（スタッフ×日）】／個人＝今まで通りのカレンダー（v3.132.0・2026-11-25 ユーザー決定）。
+                //   ユーザーの言葉：「印刷の全体表示が良かったので、ウェブで見る表示も全体表示は表に。
+                //   個人に切り替えた時は、カレンダーの中に休みを入れる今まで通りの方法で」。
+                //   表の氏名を押すと、その人のカレンダーに切り替わる（上の名前ボタンと同じ）。
+                if(!calStaffFilter)return(
+                  <div data-offview="all" style={{flex:1,minHeight:0,overflowY:'auto',margin:'0 18px 18px'}}>
+                    <StaffOffTable c={offCtxV} rosterNames={staffList.map(s=>s.name)} noteOf={noteOfCur} storeObj={vsStore}
+                      meName={currentUser&&currentUser.name} onPick={n=>setCalStaffFilter(n)}
+                      topRight={<MonthlyHolidayBadge wide y={cy} m={cm} value={(monthlyHolidays||{})[`${cy}-${cm+1}`]}
+                        canEdit={canRestore(currentUser)} onSave={saveMonthlyHoliday}/>}
+                      hint="色の付いた氏名を押すと、その人のカレンダーに切り替わります"/>
+                  </div>
+                );
                 return(
-                  <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',margin:'0 18px 18px',border:'2px solid #e5e7eb',borderRadius:9}}>
-                    <div style={{overflowY:'auto',flex:1}}>
-                    <div style={{border:'none'}}>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'linear-gradient(90deg,#fff7ed,#fef9f0)',borderBottom:'2px solid #fed7aa'}}>
+                  <div data-offview="one" style={{display:'flex',flexDirection:'row',justifyContent:'center',alignItems:'stretch',gap:OFF1_GAP,flex:1,minHeight:0,margin:'0 18px 18px',...(OFF1_CQ?{containerType:'size'}:{})}}>
+                    {/* ★個人のカレンダーは【1画面に収める】（v3.133.0・2026-11-25 ユーザー指示）。
+                        ユーザーの言葉：「上下スクロールしないと見れないので、1画面で全体表示して。あまり表示も小さくならないように」。
+                        週の行を、空いている高さに均等に配る（1行の高さを決め打ちにしない）。字の大きさは変えない。
+                        ★OFF1_ROW_MIN より低くはしない＝とても低い画面の時だけ、今までどおり中をスクロールできる。
+                        ★週の行やマスに高さの決め打ち（以前は120px）を戻さないこと。5〜6週ぶんで必ず画面からはみ出す。
+                        ★★枠は2つ（v3.134.0）：左＝カレンダー（横幅は窓の高さから決める・マスを横長にしない）／右＝集計（別の枠・緑）。
+                        集計をカレンダーの枠の中や下に戻さないこと（下に置くと、狭い窓で折り返してカレンダーの高さを取る）。 */}
+                    <div data-off1scroll="1" style={{...(OFF1_CQ?{flex:'0 0 auto',width:off1CalW(weeks.length)}:{flex:'1 1 auto'}),minWidth:0,minHeight:0,overflowY:'auto',display:'flex',flexDirection:'column',boxSizing:'border-box',border:'2px solid '+OFF1_FRAME,borderRadius:9,background:'white'}}>
+                    <div data-off1grid="1" style={{border:'none',flex:1,minHeight:0,display:'flex',flexDirection:'column'}}>
+                      <div data-off1dow="1" style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',flexShrink:0,height:OFF1_DOW_H,boxSizing:'border-box',background:'linear-gradient(90deg,#fff7ed,#fef9f0)',borderBottom:'2px solid '+OFF1_FRAME}}>
                         {DOW.map((d,i)=>(
-                          <div key={i} style={{padding:'9px 0',textAlign:'center',fontWeight:700,fontSize:13,color:i===0?'#dc2626':i===6?'#1d4ed8':'#374151'}}>{d}</div>
+                          <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:13,borderLeft:i>0?'1px solid '+OFF1_LINE:'none',color:i===0?'#dc2626':i===6?'#1d4ed8':'#374151'}}>{d}</div>
                         ))}
                       </div>
                       {weeks.map((week,wi)=>(
-                        <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)'}}>
+                        <div key={wi} data-off1week={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',flex:'1 1 0',minHeight:OFF1_ROW_MIN}}>
                           {week.map((day,di)=>{
-                            if(!day)return <div key={di} style={{minHeight:120,borderTop:'1px solid #e5e7eb',borderLeft:di>0?'1px solid #e5e7eb':'none',background:'#f9fafb'}}/>;
+                            if(!day)return <div key={di} style={{borderTop:wi>0?'1px solid '+OFF1_LINE:'none',borderLeft:di>0?'1px solid '+OFF1_LINE:'none',background:'#f9fafb'}}/>;
                             const dkk=`${cy}-${cm+1}-${day}`;
                             const dow=new Date(cy,cm,day).getDay();
                             const isHol=HOLIDAYS.has(`${cy}-${cm+1}-${day}`);
@@ -19479,10 +20210,10 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                             const cellIsTrn=calStaffFilter&&filteredTrns.length>0;
                             // 休業日の見た目は車検カレンダーと共通（A案＋左の区切りバー）
                             const baseBg=isCl?CLOSED_BG:'white';
-                            const highlightBg=cellIsOff?'#fff7ed':cellIsLeave?'#f0fdf4':cellIsTrn?'#f9f0ff':baseBg;
-                            const highlightOutline=cellIsOff?'2px solid #f97316':cellIsLeave?'2px solid #10b981':cellIsTrn?('2px solid '+TRN_COL):'none';
+                            const highlightBg=cellIsOff?OFF1_OFF_BG:cellIsLeave?OFF1_LV_BG:cellIsTrn?'#f9f0ff':baseBg;
+                            const highlightOutline=cellIsOff?('2px solid '+OFF1_OFF_BD):cellIsLeave?('2px solid '+OFF1_LV_BD):cellIsTrn?('2px solid '+TRN_COL):'none';
                             return(
-                              <div key={di} style={{minHeight:120,padding:'5px 4px',borderTop:'1px solid #e5e7eb',borderLeft:di>0?'1px solid #e5e7eb':'none',background:highlightBg,boxShadow:isCl?CLOSED_BAR:'none',outline:isToday?TODAY_CELL.outline:highlightOutline,outlineOffset:isToday?TODAY_CELL.outlineOffset:0,borderRadius:isToday?10:0,zIndex:isToday?3:'auto',position:'relative',transition:'background 0.15s'}}>
+                              <div key={di} style={{padding:'5px 4px',overflow:'hidden',borderTop:wi>0?'1px solid '+OFF1_LINE:'none',borderLeft:di>0?'1px solid '+OFF1_LINE:'none',background:highlightBg,boxShadow:isCl?CLOSED_BAR:'none',outline:isToday?TODAY_CELL.outline:highlightOutline,outlineOffset:isToday?TODAY_CELL.outlineOffset:-2,borderRadius:isToday?10:0,zIndex:isToday?3:'auto',position:'relative',transition:'background 0.15s'}}>
                                 {isCl&&<ClosedMark/>}
                                 <div style={{fontWeight:800,fontSize:14,marginBottom:4,color:isCl?CLOSED_FG:numCol,display:'flex',alignItems:'center',gap:3}}>
                                   <span style={isToday?{flexShrink:0,...TODAY_NUM}:{flexShrink:0}}>{day}</span>
@@ -19495,7 +20226,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                                   {filteredOffs.map((name,i)=>{
                                     const isFiltered=calStaffFilter===name;
                                     return(
-                                      <div key={`o${i}`} style={{display:'flex',alignItems:'center',gap:3,padding:'2px 5px',borderRadius:4,background:'#fff7ed',border:`1px solid ${isFiltered?'#f97316':'#fed7aa'}`}}>
+                                      <div key={`o${i}`} style={{display:'flex',alignItems:'center',gap:3,padding:'2px 5px',borderRadius:4,background:'white',border:`1px solid ${isFiltered?OFF1_OFF_BD:'#fed7aa'}`}}>
                                         <span style={{width:14,height:14,borderRadius:3,background:'#f97316',color:'white',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:800,flexShrink:0}}>{name.charAt(0)}</span>
                                         <span style={{fontSize:10,fontWeight:isFiltered?800:600,color:'#92400e',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:56}}>{name}</span>
                                         <span style={{fontSize:8,color:'#ea580c',flexShrink:0}}>休</span>
@@ -19507,7 +20238,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                                   {filteredLeaves.map((name,i)=>{
                                     const isFiltered=calStaffFilter===name;
                                     return(
-                                      <div key={`l${i}`} style={{display:'flex',alignItems:'center',gap:3,padding:'2px 5px',borderRadius:4,background:'#f0fdf4',border:`1px solid ${isFiltered?'#10b981':'#bbf7d0'}`}}>
+                                      <div key={`l${i}`} style={{display:'flex',alignItems:'center',gap:3,padding:'2px 5px',borderRadius:4,background:'white',border:`1px solid ${isFiltered?OFF1_LV_BD:'#bbf7d0'}`}}>
                                         <span style={{width:14,height:14,borderRadius:3,background:'#10b981',color:'white',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:800,flexShrink:0}}>{name.charAt(0)}</span>
                                         <span style={{fontSize:10,fontWeight:isFiltered?800:600,color:'#065f46',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:56}}>{name}</span>
                                         <span style={{fontSize:8,color:'#059669',flexShrink:0}}>有</span>
@@ -19533,42 +20264,48 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
                         </div>
                       ))}
                     </div>
+                    </div>
 
-                    {/* -- 個人選択時：月間合計バー -- */}
+                    {/* -- 個人選択時：右の列（v3.134.2・2026-11-26 ユーザー指示） --
+                        ユーザーの言葉：「全体で行った会社の休日の項目を、左上から右の個人の休日の上あたりに移動し、
+                        個人の休日の数は1段下げる。枠は分けた方が見やすい」。
+                        ★枠は2つ：上＝会社の休日数（MonthlyHolidayBadge の wide＋stack）／下＝その人の集計。1つの枠にまとめないこと。
+                        ★左上（名前ボタンの並び）には出さない（二重に出さない）。 */}
+                    <div data-off1side="1" style={{flex:'0 0 auto',width:OFF1_SUM_W,alignSelf:'flex-start',maxHeight:'100%',overflowY:'auto',display:'flex',flexDirection:'column',gap:OFF1_SIDE_GAP}}>
+                    <div data-off1mh="1" style={{flexShrink:0}}>
+                      <MonthlyHolidayBadge wide stack y={cy} m={cm} value={(monthlyHolidays||{})[`${cy}-${cm+1}`]}
+                        canEdit={canRestore(currentUser)} onSave={saveMonthlyHoliday}/>
+                    </div>
+                    {/* -- 月間の集計（v3.134.0 から【右の別の枠】・緑） --
+                        ★研修はここに出さない（2026-11-25 ユーザー指示：「研修は仕事なので、休日の中に研修は入れなくて大丈夫」）。
+                          カレンダーのマスの「研」はそのまま（その日に居ない理由が分かるように）。
+                        ★見出しに黒・濃い灰色を使わない（「黒が入ると重たく感じる。休みなのでグリーン系で」）。
+                        ★「（うち店休日○＋繰り越し休日○）」の内訳は出さない（v3.134.2・2026-11-26 ユーザー指示：
+                          「うち店休いくらとかの表示は不必要。店休を含めた休日の合計を休日として表示」）。数は今までどおり店休日を含む。 */}
                     {staffMonthStats&&(
-                      <div style={{marginTop:10,padding:'11px 16px',background:'linear-gradient(90deg,#f0f9ff,#fafafa)',borderRadius:9,border:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-                        <span style={{fontSize:12,fontWeight:800,color:'white',flexShrink:0}}>
-                          📅 {calStaffFilter}さん {cy}年{cm+1}月の集計
-                        </span>
-                        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                          <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 14px',background:'#fff7ed',border:'2px solid #f97316',borderRadius:20,fontSize:13,fontWeight:800,color:'#ea580c'}}>
-                            <span style={{width:10,height:10,borderRadius:2,background:'#f97316',display:'inline-block'}}/>
-                            🏖 休日&nbsp;<span style={{fontSize:18,fontWeight:900}}>{staffMonthStats.offs}</span>&nbsp;日{offBreakdown(staffMonthStats.closedN,staffMonthStats.carry)&&<span style={{fontSize:11,fontWeight:600,color:'#9a3412'}}>{offBreakdown(staffMonthStats.closedN,staffMonthStats.carry)}</span>}
-                          </span>
-                          <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 14px',background:'#f0fdf4',border:'2px solid #10b981',borderRadius:20,fontSize:13,fontWeight:800,color:'#059669'}}>
-                            <span style={{width:10,height:10,borderRadius:2,background:'#10b981',display:'inline-block'}}/>
-                            📋 有給&nbsp;<span style={{fontSize:18,fontWeight:900}}>{staffMonthStats.leaves}</span>&nbsp;日
-                          </span>
-                          {/* ★研修は「合計」に入れない（休みではない） */}
-                          {staffMonthStats.trn>0&&(
-                            <span data-tabsumtrn="1" style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 14px',background:'#f9f0ff',border:`2px solid ${TRN_COL}`,borderRadius:20,fontSize:13,fontWeight:800,color:TRN_COL}}>
-                              <span style={{width:10,height:10,borderRadius:2,background:TRN_COL,display:'inline-block'}}/>
-                              {TRN_EMO} {TRN_LABEL}&nbsp;<span style={{fontSize:18,fontWeight:900}}>{staffMonthStats.trn}</span>&nbsp;日
-                              <span style={{fontSize:10,fontWeight:700}}>（休みではありません）</span>
-                            </span>
-                          )}
-                          <span style={{fontSize:12,color:'#c2410c',fontWeight:800,padding:'5px 10px',background:'#eef2ff',border:'1px solid #a5b4fc',borderRadius:16}}>
-                            合計 {staffMonthStats.offs+staffMonthStats.leaves} 日
-                          </span>
+                      <div data-off1sum="1" style={{flexShrink:0,boxSizing:'border-box',border:'2px solid '+OFF1_SUM_FRAME,borderRadius:9,background:OFF1_SUM_BG}}>
+                        <div data-off1sumtitle="1" style={{padding:'8px 12px',background:OFF1_SUM_HEAD_BG,color:OFF1_SUM_HEAD_FG,fontSize:13,fontWeight:800,lineHeight:1.5,borderBottom:'2px solid '+OFF1_SUM_FRAME}}>
+                          📅 {calStaffFilter}さん<br/>{cy}年{cm+1}月の集計
+                        </div>
+                        <div style={{display:'flex',flexDirection:'column',gap:8,padding:'10px 10px 12px'}}>
+                          <div data-off1sumoff="1" style={{...OFF1_TILE,background:OFF1_OFF_BG,border:'2px solid '+OFF1_OFF_BD,color:OFF1_OFF_FG}}>
+                            <div style={OFF1_TILE_ROW}><span>🏖 休日</span><span><span style={{fontSize:20,fontWeight:900}}>{staffMonthStats.offs}</span>&nbsp;日</span></div>
+                          </div>
+                          <div data-off1sumleave="1" style={{...OFF1_TILE,background:OFF1_LV_BG,border:'2px solid '+OFF1_LV_BD,color:OFF1_LV_FG}}>
+                            <div style={OFF1_TILE_ROW}><span>📋 有給</span><span><span style={{fontSize:20,fontWeight:900}}>{staffMonthStats.leaves}</span>&nbsp;日</span></div>
+                          </div>
+                          <div data-off1sumtotal="1" style={{...OFF1_TILE,background:'#eef2ff',border:'1px solid #a5b4fc',color:'#c2410c'}}>
+                            <div style={OFF1_TILE_ROW}><span>合計</span><span><span style={{fontSize:16,fontWeight:900}}>{staffMonthStats.offs+staffMonthStats.leaves}</span>&nbsp;日</span></div>
+                          </div>
                           {carryLabel(staffMonthStats.carry,true)&&(
-                            <span title={carryTitle(staffMonthStats.carry)} style={{fontSize:12,fontWeight:800,padding:'5px 12px',background:'white',border:'2px solid #93c5fd',borderRadius:16,color:staffMonthStats.carry.remain>0?'#1d4ed8':staffMonthStats.carry.remain<0?'#dc2626':'#374151'}}>
+                            <div data-off1sumcarry="1" title={carryTitle(staffMonthStats.carry)} style={{...OFF1_TILE,fontSize:12,border:'2px solid #93c5fd',color:staffMonthStats.carry.remain>0?'#1d4ed8':staffMonthStats.carry.remain<0?'#dc2626':'#374151'}}>
                               {carryLabel(staffMonthStats.carry,true)}
-                            </span>
+                            </div>
                           )}
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
                   </div>
                 );
               })()
@@ -20698,7 +21435,9 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
         headColor={`linear-gradient(135deg,${vsStore.accent},${vsStore.color})`}
         onPickDay={(y,m,d)=>{setSelDate(new Date(y,m,d));setView('schedule');setDashOpen(false);}}/>
 
-      {/* -- 週表示（v3.69・2026-10-21）。読むだけ。保存はすべて予約カードを通る -- */}
+      {/* -- 週表示（v3.69・2026-10-21）。読むだけ。保存はすべて予約カードを通る --
+          ★帯の色（v3.134.3・2026-11-26 ユーザー指示）：テスト版＝オレンジ（スケジュール画面の帯と同じ UI_HEAD）。
+            本番は今までどおり店の色（本店＝青／三田店＝赤）。HUB_IS_TEST で出し分けるので port_to_main.js の変換は要らない。 */}
       <WeekScheduleModal
         isOpen={weekOpen}
         onClose={()=>setWeekOpen(false)}
@@ -20709,7 +21448,7 @@ ${_lbl} は ${_nf.m0+1}/${_nf.d}〜${_nt.m0+1}/${_nt.d} に ${_who} が使いま
           // 本日から → 本日へ移る／月曜から → いま見ている週の月曜にそろえる
           setWeekStart(p=>v?weekStartMode(new Date(),true):weekStartOf(p||new Date()));}}
         storeId={vsId} storeName={vsStore.name}
-        headColor={`linear-gradient(135deg,${vsStore.accent},${vsStore.color})`}
+        headColor={HUB_IS_TEST?UI_HEAD:`linear-gradient(135deg,${vsStore.accent},${vsStore.color})`}
         inspData={inspData} schedData={schedData}
         staffList={currentStaffList}
         dayOffData={dayOffData} paidLeaveData={paidLeaveData} trainingData={trainingData}
